@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "SearchSGTestApp": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:65109;http://localhost:65110"
+    }
+  }
+}

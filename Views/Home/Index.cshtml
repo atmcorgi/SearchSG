@@ -1,0 +1,824 @@
+@model SearchSGTestApp.Models.TestDocumentViewModel
+@{
+    ViewData["Title"] = "SearchSG Push API Test";
+}
+
+<div class="container-fluid px-4">
+    <div class="row">
+        <div class="col-12">
+            <h1><i class="fas fa-vial me-2"></i>SearchSG API Test Suite</h1>
+            <p class="lead">Comprehensive testing tools for SearchSG Admin Operations APIs including Push API and Index Management.</p>
+        </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <ul class="nav nav-tabs" id="apiTestTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="push-api-tab" data-bs-toggle="tab" data-bs-target="#push-api" type="button" role="tab" aria-controls="push-api" aria-selected="true">
+                <i class="fas fa-upload me-2"></i>SearchSG Push API Test Application
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="index-test-tab" data-bs-toggle="tab" data-bs-target="#index-test" type="button" role="tab" aria-controls="index-test" aria-selected="false">
+                <i class="fas fa-database me-2"></i>SearchSG Index Test Application
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="admin-test-tab" data-bs-toggle="tab" data-bs-target="#admin-test" type="button" role="tab" aria-controls="admin-test" aria-selected="false">
+                <i class="fas fa-users-cog me-2"></i>Admin Management
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content" id="apiTestTabsContent">
+        <!-- Tab 1: Push API Test -->
+        <div class="tab-pane fade show active" id="push-api" role="tabpanel" aria-labelledby="push-api-tab">
+            <div class="mt-4">
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-key me-2"></i>Authentication Test</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>Test the OAuth2 authentication flow to obtain an access token.</p>
+                                <button type="button" class="btn btn-primary btn-loading" id="testAuthBtn">
+                                    <span class="btn-text">Test Authentication</span>
+                                    <span class="loading">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Authenticating...
+                                    </span>
+                                </button>
+                                <div id="authResult" class="result-box"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-list me-2"></i>List Applications</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>List all applications accessible by this token.</p>
+                                <button type="button" class="btn btn-info btn-loading" id="listAppsBtn">
+                                    <span class="btn-text">List Applications</span>
+                                    <span class="loading">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Loading...
+                                    </span>
+                                </button>
+                                <div id="listAppsResult" class="result-box"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-cog me-2"></i>Application Access Test</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>Test if the Application ID has proper access permissions.</p>
+                                <button type="button" class="btn btn-warning btn-loading" id="testAppBtn">
+                                    <span class="btn-text">Test Application Access</span>
+                                    <span class="loading">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Testing...
+                                    </span>
+                                </button>
+                                <div id="appResult" class="result-box"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-info-circle me-2"></i>Get App Details</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Get detailed information about the current application.</p>
+                            <button type="button" class="btn btn-primary btn-loading" id="getAppDetailsBtn">
+                                <span class="btn-text">Get App Details</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Loading...
+                                </span>
+                            </button>
+                            <div id="appDetailsResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-info-circle me-2"></i>Debug Info</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Check console logs for detailed debugging information.</p>
+                            <small class="text-muted">
+                                <strong>Current Config:</strong><br>
+                                Base URL: https://api.services.search.gov.sg<br>
+                                App ID: b306a35b-f61b-403c-83ea-acfb499cf3c5
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-edit me-2"></i>Custom Document Push</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="documentForm">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="documentId" class="form-label">Document ID</label>
+                                            <input type="text" class="form-control" id="documentId" asp-for="DocumentId" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="url" class="form-label">URL</label>
+                                            <input type="url" class="form-control" id="url" asp-for="Url" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="title" class="form-label">Title</label>
+                                            <input type="text" class="form-control" id="title" asp-for="Title" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="contentType" class="form-label">Content Type</label>
+                                            <select class="form-select" id="contentType" asp-for="ContentType" required>
+                                                <option value="Publications">Publications</option>
+                                                <option value="Pages" selected>Pages</option>
+                                                <option value="Schools">Schools</option>
+                                                <option value="News">News</option>
+                                                <option value="FAQ">FAQ</option>
+                                                <option value="Events">Events</option>
+                                                <option value="Courses">Courses</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label class="form-label">Categories (select multiple)</label>
+                                            <div class="border rounded p-3" style="background-color: #f8f9fa;">
+                                                <div class="form-check">
+                                                    <input class="form-check-input category-checkbox" type="checkbox" value="Speeches" id="cat-speeches">
+                                                    <label class="form-check-label" for="cat-speeches">Speeches</label>
+                                                </div>
+                                                <div class="form-check">
+                                                    <input class="form-check-input category-checkbox" type="checkbox" value="Press Releases" id="cat-press">
+                                                    <label class="form-check-label" for="cat-press">Press Releases</label>
+                                                </div>
+                                                <div class="form-check">
+                                                    <input class="form-check-input category-checkbox" type="checkbox" value="Parliamentary Replies" id="cat-parliament">
+                                                    <label class="form-check-label" for="cat-parliament">Parliamentary Replies</label>
+                                                </div>
+                                                <div class="form-check">
+                                                    <input class="form-check-input category-checkbox" type="checkbox" value="Primary" id="cat-primary">
+                                                    <label class="form-check-label" for="cat-primary">Primary</label>
+                                                </div>
+                                                <div class="form-check mb-0">
+                                                    <input class="form-check-input category-checkbox" type="checkbox" value="Junior Colleges and Millennia Institute" id="cat-jc">
+                                                    <label class="form-check-label" for="cat-jc">Junior Colleges and Millennia Institute</label>
+                                                </div>
+                                            </div>
+                                            <input type="hidden" id="categories" asp-for="Categories">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="keywords" class="form-label">Keywords (comma-separated)</label>
+                                            <input type="text" class="form-control" id="keywords" asp-for="Keywords">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="customFilter1" class="form-label">Custom Filter 1 (comma-separated)</label>
+                                            <input type="text" class="form-control" id="customFilter1" asp-for="CustomFilter1">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="searchRankingScore" class="form-label">Search Ranking Score (1-1000)</label>
+                                            <input type="number" class="form-control" id="searchRankingScore" asp-for="SearchRankingScore" min="1" max="1000">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="content" class="form-label">Content</label>
+                                    <textarea class="form-control" id="content" asp-for="Content" rows="4" required></textarea>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-success btn-loading" id="pushDocBtn">
+                                        <span class="btn-text">Push Document</span>
+                                        <span class="loading">
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                            Pushing...
+                                        </span>
+                                    </button>
+                                    <button type="button" class="btn btn-info btn-loading" id="pushAndWaitBtn">
+                                        <span class="btn-text">Push & Wait for Completion</span>
+                                        <span class="loading">
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                            Processing...
+                                        </span>
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" id="generateNewIdBtn">
+                                        <i class="fas fa-sync-alt me-1"></i>Generate New ID
+                                    </button>
+                                </div>
+                                <div id="pushResult" class="result-box"></div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-search me-2"></i>Job Status Check</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="jobId" class="form-label">Job ID</label>
+                                <input type="text" class="form-control" id="jobId" placeholder="Enter job ID from push operation">
+                            </div>
+                            <button type="button" class="btn btn-info btn-loading" id="checkStatusBtn">
+                                <span class="btn-text">Check Job Status</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Checking...
+                                </span>
+                            </button>
+                            <div id="statusResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-trash me-2"></i>Delete Document</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="deleteDocId" class="form-label">Document ID to Delete</label>
+                                <input type="text" class="form-control" id="deleteDocId" placeholder="Enter document ID to delete">
+                            </div>
+                            <button type="button" class="btn btn-danger btn-loading" id="deleteDocBtn">
+                                <span class="btn-text">Delete Document</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Deleting...
+                                </span>
+                            </button>
+                            <div id="deleteResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    <!-- End Tab 1: Push API Test -->
+    <!-- Tab 2: Index Test -->
+    <div class="tab-pane fade" id="index-test" role="tabpanel" aria-labelledby="index-test-tab">
+        <div class="mt-4">
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-database me-2"></i>Get Index Status</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Check the current indexing status of the application.</p>
+                            <button type="button" class="btn btn-warning btn-loading" id="getIndexStatusBtn">
+                                <span class="btn-text">Get Index Status</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Loading...
+                                </span>
+                            </button>
+                            <div id="indexStatusResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-sync-alt me-2"></i>Trigger Index Sync</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Manually trigger index synchronization for the application <b>IMMEDIATELY</b>.</p>
+                            <button type="button" class="btn btn-success btn-loading" id="triggerSyncBtn">
+                                <span class="btn-text">Trigger Index Sync</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Syncing...
+                                </span>
+                            </button>
+                            <div id="triggerSyncResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-search me-2"></i>Search Documents</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Search for documents in the SearchSG index. Leave empty to get all documents.</p>
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="searchQuery" class="form-label">Search Query</label>
+                                        <input type="text" class="form-control" id="searchQuery" placeholder="Enter search terms or leave empty for all documents">
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="searchSize" class="form-label">Results Count</label>
+                                        <select class="form-select" id="searchSize">
+                                            <option value="10">10 results</option>
+                                            <option value="20" selected>20 results</option>
+                                            <option value="50">50 results</option>
+                                            <option value="100">100 results</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-primary btn-loading" id="searchDocsBtn">
+                                <span class="btn-text">Search Documents</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Searching...
+                                </span>
+                            </button>
+                            <div id="searchDocsResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-key me-2"></i>Access Keys</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Manage Access Keys for Search API (Limit: 2 per app).</p>
+                            <div class="d-flex gap-2 mb-3 flex-wrap">
+                                <button type="button" class="btn btn-info btn-loading btn-sm" id="showCurrentKeyBtn">
+                                    <span class="btn-text">Show Current Key</span>
+                                    <span class="loading">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Loading...
+                                    </span>
+                                </button>
+                                <button type="button" class="btn btn-success btn-loading btn-sm" id="createAccessKeysBtn">
+                                    <span class="btn-text">Create Key</span>
+                                    <span class="loading">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Creating...
+                                    </span>
+                                </button>
+                                <button type="button" class="btn btn-danger btn-loading btn-sm" id="getAccessKeysBtn" title="⚠️ Dangerous: Creates new key (Limit: 2 per app)">
+                                    <span class="btn-text">Get New Key</span>
+                                    <span class="loading">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Loading...
+                                    </span>
+                                </button>
+                            </div>
+                            <div id="accessKeysResult" class="result-box"></div>
+                            <small class="text-muted mt-2 d-block">
+                                <strong>Current Config:</strong><br>
+                                Base URL: https://api.services.search.gov.sg<br>
+                                App ID: b306a35b-f61b-403c-83ea-acfb499cf3c5
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    <!-- End Tab 2: Index Test -->
+
+    <!-- Tab 3: Admin Management -->
+    <div class="tab-pane fade" id="admin-test" role="tabpanel" aria-labelledby="admin-test-tab">
+        <div class="mt-4">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-shield-alt me-2"></i>Check Admin Permissions</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Check if you have admin permissions for this application.</p>
+                            <button type="button" class="btn btn-warning btn-loading" id="checkPermissionsBtn">
+                                <span class="btn-text">Check Permissions</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Checking...
+                                </span>
+                            </button>
+                            <div id="checkPermissionsResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-users me-2"></i>Current Admins</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Get the current list of administrators for this application.</p>
+                            <button type="button" class="btn btn-info btn-loading" id="getCurrentAdminsBtn">
+                                <span class="btn-text">Get Current Admins</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Loading...
+                                </span>
+                            </button>
+                            <div id="currentAdminsResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-user-plus me-2"></i>Add Admin</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Add a new administrator to the application.</p>
+                            <div class="mb-3">
+                                <label for="addAdminEmail" class="form-label">Admin Email</label>
+                                <input type="email" class="form-control" id="addAdminEmail" placeholder="Enter email address" required>
+                            </div>
+                            <button type="button" class="btn btn-success btn-loading" id="addAdminBtn">
+                                <span class="btn-text">Add Admin</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Adding...
+                                </span>
+                            </button>
+                            <div id="addAdminResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-user-minus me-2"></i>Remove Admin</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Remove an administrator from the application.</p>
+                            <div class="mb-3">
+                                <label for="removeAdminEmail" class="form-label">Admin Email</label>
+                                <input type="email" class="form-control" id="removeAdminEmail" placeholder="Enter email address to remove" required>
+                            </div>
+                            <button type="button" class="btn btn-danger btn-loading" id="removeAdminBtn">
+                                <span class="btn-text">Remove Admin</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Removing...
+                                </span>
+                            </button>
+                            <div id="removeAdminResult" class="result-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-info-circle me-2"></i>Admin Management Info</h5>
+                        </div>
+                        <div class="card-body">
+                            <p><strong>How it works:</strong></p>
+                            <ol>
+                                <li><strong>Get Current Admins:</strong> Retrieves current adminList from application</li>
+                                <li><strong>Add Admin:</strong> Uses GET → modify → PUT pattern to add new admin</li>
+                                <li><strong>Remove Admin:</strong> Uses GET → modify → PUT pattern to remove admin</li>
+                            </ol>
+                            <div class="alert alert-warning mt-3">
+                                <small><strong>Note:</strong> Admin changes affect application access permissions. Be careful when removing admins.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- End Tab 3: Admin Management -->
+
+</div>
+<!-- End Tab Content -->
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            // Initialize Bootstrap tabs - Alternative approach
+            $('#apiTestTabs button').on('click', function(e) {
+                e.preventDefault();
+
+                // Remove active class from all tabs and content
+                $('#apiTestTabs button').removeClass('active');
+                $('.tab-pane').removeClass('show active');
+
+                // Add active class to clicked tab
+                $(this).addClass('active');
+
+                // Show corresponding content
+                var target = $(this).data('bs-target');
+                $(target).addClass('show active');
+            });
+
+            // Function to generate unique document ID
+            function generateDocumentId() {
+                const timestamp = Date.now().toString(36);
+                const random = Math.random().toString(36).substr(2, 5);
+                return 'doc-' + timestamp + '-' + random;
+            }
+
+            // Auto-generate ID on page load
+            $('#documentId').val(generateDocumentId());
+
+            // Generate new document ID button
+            $('#generateNewIdBtn').click(function() {
+                $('#documentId').val(generateDocumentId());
+            });
+
+            // Handle category checkboxes
+            $('.category-checkbox').change(function() {
+                const selectedCategories = [];
+                $('.category-checkbox:checked').each(function() {
+                    selectedCategories.push($(this).val());
+                });
+                $('#categories').val(selectedCategories.join(','));
+            });
+
+            // Test Authentication
+            $('#testAuthBtn').click(function() {
+                performApiCall('/Home/TestAuthentication', null, '#authResult', '#testAuthBtn');
+            });
+
+            // Test Application Access
+            $('#testAppBtn').click(function() {
+                performApiCall('/Home/TestApplicationAccess', null, '#appResult', '#testAppBtn');
+            });
+
+            // List Applications
+            $('#listAppsBtn').click(function() {
+                performApiCall('/Home/ListApplications', null, '#listAppsResult', '#listAppsBtn');
+            });
+
+            // Get App Details
+            $('#getAppDetailsBtn').click(function() {
+                performApiCall('/Home/GetAppDetails', null, '#appDetailsResult', '#getAppDetailsBtn');
+            });
+
+            // Get Index Status
+            $('#getIndexStatusBtn').click(function() {
+                performApiCall('/Home/GetIndexStatus', null, '#indexStatusResult', '#getIndexStatusBtn');
+            });
+
+            // Trigger Index Sync
+            $('#triggerSyncBtn').click(function() {
+                performApiCall('/Home/TriggerIndexSync', null, '#triggerSyncResult', '#triggerSyncBtn');
+            });
+
+            // Search Documents
+            $('#searchDocsBtn').click(function() {
+                const searchData = {
+                    query: $('#searchQuery').val().trim() || '*',
+                    size: parseInt($('#searchSize').val()),
+                    from: 0
+                };
+                performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#searchDocsBtn');
+            });
+
+            // Show Current Key (Safe - reads from local storage)
+            $('#showCurrentKeyBtn').click(function() {
+                performApiCall('/Home/ShowCurrentKey', null, '#accessKeysResult', '#showCurrentKeyBtn');
+            });
+
+            // Create Access Keys
+            $('#createAccessKeysBtn').click(function() {
+                performApiCall('/Home/CreateAccessKeys', null, '#accessKeysResult', '#createAccessKeysBtn');
+            });
+
+            // Get New Key (Dangerous - hits API and counts toward limit)
+            $('#getAccessKeysBtn').click(function() {
+                if (confirm('⚠️ WARNING: This will create a new API request and count toward your 2-key limit per app.\n\nAre you sure you want to proceed?')) {
+                    performApiCall('/Home/GetAccessKeys', null, '#accessKeysResult', '#getAccessKeysBtn');
+                }
+            });
+
+
+            // Push Document
+            $('#pushDocBtn').click(function() {
+                if ($('#documentForm')[0].checkValidity()) {
+                    const formData = getFormData();
+                    performApiCall('/Home/PushDocument', formData, '#pushResult', '#pushDocBtn', function(success) {
+                        if (success) {
+                            // Auto-generate new ID after successful push
+                            $('#documentId').val(generateDocumentId());
+                        }
+                    });
+                } else {
+                    $('#documentForm')[0].reportValidity();
+                }
+            });
+
+            // Push and Wait
+            $('#pushAndWaitBtn').click(function() {
+                if ($('#documentForm')[0].checkValidity()) {
+                    const formData = getFormData();
+                    performApiCall('/Home/PushAndWait', formData, '#pushResult', '#pushAndWaitBtn', function(success) {
+                        if (success) {
+                            // Auto-generate new ID after successful push
+                            $('#documentId').val(generateDocumentId());
+                        }
+                    });
+                } else {
+                    $('#documentForm')[0].reportValidity();
+                }
+            });
+
+            // Check Job Status
+            $('#checkStatusBtn').click(function() {
+                const jobId = $('#jobId').val().trim();
+                if (jobId) {
+                    performApiCall('/Home/CheckJobStatus', jobId, '#statusResult', '#checkStatusBtn');
+                } else {
+                    showResult('#statusResult', false, 'Please enter a Job ID');
+                }
+            });
+
+            // Delete Document
+            $('#deleteDocBtn').click(function() {
+                const docId = $('#deleteDocId').val().trim();
+                if (docId) {
+                    performApiCall('/Home/DeleteDocument', docId, '#deleteResult', '#deleteDocBtn');
+                } else {
+                    showResult('#deleteResult', false, 'Please enter a Document ID');
+                }
+            });
+
+            // Admin Management Functions
+            $('#checkPermissionsBtn').click(function() {
+                performApiCall('/Home/CheckAdminPermissions', null, '#checkPermissionsResult', '#checkPermissionsBtn');
+            });
+
+            $('#getCurrentAdminsBtn').click(function() {
+                performApiCall('/Home/GetCurrentAdmins', null, '#currentAdminsResult', '#getCurrentAdminsBtn');
+            });
+
+            $('#addAdminBtn').click(function() {
+                const email = $('#addAdminEmail').val().trim();
+                if (email && email.includes('@@')) {
+                    const adminData = { email: email };
+                    performApiCall('/Home/AddAdmin', adminData, '#addAdminResult', '#addAdminBtn', function(success) {
+                        if (success) {
+                            $('#addAdminEmail').val(''); // Clear input on success
+                            // Optionally refresh current admins list
+                            performApiCall('/Home/GetCurrentAdmins', null, '#currentAdminsResult', null);
+                        }
+                    });
+                } else {
+                    showResult('#addAdminResult', false, 'Please enter a valid email address');
+                }
+            });
+
+            $('#removeAdminBtn').click(function() {
+                const email = $('#removeAdminEmail').val().trim();
+                if (email && email.includes('@@')) {
+                    if (confirm('Are you sure you want to remove admin: ' + email + '? This will revoke their access to the application.')) {
+                        const adminData = { email: email };
+                        performApiCall('/Home/RemoveAdmin', adminData, '#removeAdminResult', '#removeAdminBtn', function(success) {
+                            if (success) {
+                                $('#removeAdminEmail').val(''); // Clear input on success
+                                // Optionally refresh current admins list
+                                performApiCall('/Home/GetCurrentAdmins', null, '#currentAdminsResult', null);
+                            }
+                        });
+                    }
+                } else {
+                    showResult('#removeAdminResult', false, 'Please enter a valid email address');
+                }
+            });
+
+            function getFormData() {
+                return {
+                    documentId: $('#documentId').val(),
+                    url: $('#url').val(),
+                    title: $('#title').val(),
+                    content: $('#content').val(),
+                    contentType: $('#contentType').val(),
+                    categories: $('#categories').val(),
+                    keywords: $('#keywords').val(),
+                    customFilter1: $('#customFilter1').val(),
+                    searchRankingScore: parseInt($('#searchRankingScore').val()) || 100
+                };
+            }
+
+            function performApiCall(url, data, resultSelector, buttonSelector, callback) {
+                const $button = $(buttonSelector);
+                const $result = $(resultSelector);
+
+                // Show loading state
+                if ($button && $button.length > 0) {
+                    $button.prop('disabled', true);
+                    $button.find('.btn-text').hide();
+                    $button.find('.loading').show();
+                }
+                if ($result && $result.length > 0) {
+                    $result.hide();
+                }
+
+                $.ajax({
+                    url: url,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: data ? JSON.stringify(data) : null,
+                    success: function(response) {
+                        showResult(resultSelector, response.success, response.message, response.jobId, response.errorDetails);
+                        if (response.jobId) {
+                            $('#jobId').val(response.jobId);
+                        }
+                        // Call callback if provided
+                        if (callback && typeof callback === 'function') {
+                            callback(response.success);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        showResult(resultSelector, false, 'Request failed: ' + error);
+                        // Call callback with false on error
+                        if (callback && typeof callback === 'function') {
+                            callback(false);
+                        }
+                    },
+                    complete: function() {
+                        // Hide loading state
+                        if ($button && $button.length > 0) {
+                            $button.prop('disabled', false);
+                            $button.find('.btn-text').show();
+                            $button.find('.loading').hide();
+                        }
+                    }
+                });
+            }
+
+            function showResult(selector, success, message, jobId, errorDetails) {
+                const $result = $(selector);
+                $result.removeClass('result-success result-error');
+                $result.addClass(success ? 'result-success' : 'result-error');
+
+                let html = '<strong>' + (success ? 'Success!' : 'Error!') + '</strong><br>' + message;
+                if (jobId) {
+                    html += '<br><small><strong>Job ID:</strong> ' + jobId + '</small>';
+                }
+                if (errorDetails) {
+                    // Try to format JSON if it's valid JSON
+                    let formattedDetails = errorDetails;
+                    try {
+                        const jsonObj = JSON.parse(errorDetails);
+                        formattedDetails = '<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 300px; overflow-y: auto;">' +
+                                         JSON.stringify(jsonObj, null, 2) + '</pre>';
+                    } catch (e) {
+                        // If not JSON, just display as is but with better formatting
+                        formattedDetails = '<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap;">' +
+                                         errorDetails + '</pre>';
+                    }
+                    html += '<br><small><strong>Details:</strong></small><br>' + formattedDetails;
+                }
+                html += '<br><small><strong>Time:</strong> ' + new Date().toLocaleString() + '</small>';
+
+                $result.html(html);
+                $result.show();
+            }
+        });
+    </script>
+}
