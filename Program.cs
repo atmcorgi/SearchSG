@@ -59,12 +59,13 @@ builder.Services.AddSingleton(searchSGConfig);
 builder.Services.AddHttpClient();
 
 // Register services with proper dependencies
-builder.Services.AddScoped<SearchSGAuthService>(provider =>
+// SearchSGAuthService should be Singleton to maintain token cache across requests
+builder.Services.AddSingleton<SearchSGAuthService>(provider =>
 {
-    var httpClient = provider.GetRequiredService<IHttpClientFactory>().CreateClient();
+    var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
     var config = provider.GetRequiredService<SearchSGConfiguration>();
     var logger = provider.GetRequiredService<ILogger<SearchSGAuthService>>();
-    return new SearchSGAuthService(httpClient, config, logger);
+    return new SearchSGAuthService(httpClientFactory, config, logger);
 });
 
 builder.Services.AddScoped<SearchSGPushService>(provider =>

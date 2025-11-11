@@ -214,6 +214,9 @@ namespace SearchSGTestApp.Services
                 if (targetElement.TryGetProperty("accessKeySecret", out var secretElement))
                 {
                     accessKeySecret = secretElement.GetString();
+                    // Debug: Log secret details to verify parsing
+                    _logger.LogInformation("Parsed accessKeySecret: length={Length}, valueKind={ValueKind}", 
+                        accessKeySecret?.Length ?? 0, secretElement.ValueKind);
                 }
 
                 // Extract description (optional)

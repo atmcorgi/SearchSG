@@ -3,6 +3,9 @@ using SearchSGTestApp.Models;
 using SearchSGTestApp.Services;
 using System.Linq;
 using System.Text.Json;
+using System.Net.Http.Headers;
+using System.Text;
+using RestSharp;
 
 namespace SearchSGTestApp.Controllers
 {
@@ -437,137 +440,188 @@ namespace SearchSGTestApp.Controllers
         {
             try
             {
-                // Search Query API requires Access Keys, not Bearer token
-                // First try to get Access Keys, then use them for search
-                var token = await _authService.GetAccessTokenAsync();
-
-                // Get Access Keys first
-                var client = new HttpClient();
-                var accessKeysRequest = new HttpRequestMessage(HttpMethod.Get,
-                    $"{_config.BaseUrl}/admin/v1/bootstrap/applications/{_config.ApplicationId}/accessKeys");
-
-                accessKeysRequest.Headers.Add("Authorization", $"Bearer {token}");
-                accessKeysRequest.Headers.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) postman-docs");
-
-                var accessKeysResponse = await client.SendAsync(accessKeysRequest);
-                var accessKeysContent = await accessKeysResponse.Content.ReadAsStringAsync();
-
-                if (!accessKeysResponse.IsSuccessStatusCode)
+                // Validate request
+                if (searchRequest == null)
                 {
                     return Json(new ApiTestResult
                     {
                         Success = false,
-                        Message = $"Failed to get Access Keys: {accessKeysResponse.StatusCode}",
-                        ErrorDetails = accessKeysContent,
+                        Message = "Invalid search request",
+                        ErrorDetails = "Search request cannot be null",
                         Timestamp = DateTime.Now
                     });
                 }
 
-                // Try to get saved Access Keys from local storage first (preferred)
-                var savedKeys = await _storageService.GetAccessKeysAsync(_config.ApplicationId);
-                AccessKeyData? keyData = null;
+                // Prepare query parameters
+                var query = string.IsNullOrWhiteSpace(searchRequest.Query) ? "*" : searchRequest.Query.Trim();
+                var size = searchRequest.Size > 0 ? searchRequest.Size : 20;
+                var clientId = _config.ApplicationId;
 
-                if (savedKeys != null)
-                {
-                    // Use helper method to parse Access Keys from any format
-                    keyData = _storageService.ParseAccessKeyData(savedKeys);
-                }
-
-                // If no saved keys or parsing failed, try to get from API response
-                if (keyData == null)
-                {
-                    try
-                    {
-                        // Parse Access Keys response - handle both object and array formats
-                        using var document = System.Text.Json.JsonDocument.Parse(accessKeysContent);
-                        var root = document.RootElement;
-                        
-                        // Parse from API response using the helper method (it handles all formats)
-                        keyData = _storageService.ParseAccessKeyData(root);
-                        
-                        // Save for next time if successfully parsed
-                        if (keyData != null)
-                        {
-                            await _storageService.SaveAccessKeysAsync(_config.ApplicationId, accessKeysContent);
-                            _logger.LogInformation("Access Keys parsed from API response and saved to local storage");
-                        }
-                        else
-                        {
-                            // Check if we have access keys in the response but couldn't parse them
-                            bool hasKeys = false;
-                            if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
-                            {
-                                hasKeys = true;
-                            }
-                            else if (root.ValueKind == JsonValueKind.Object && 
-                                     root.TryGetProperty("data", out var dataProp) && 
-                                     dataProp.ValueKind == JsonValueKind.Array && 
-                                     dataProp.GetArrayLength() > 0)
-                            {
-                                hasKeys = true;
-                            }
-                            
-                            if (hasKeys)
-                            {
-                                return Json(new ApiTestResult
-                                {
-                                    Success = false,
-                                    Message = "Access Keys found but failed to parse. Please check the data format.",
-                                    ErrorDetails = "Access Keys exist in API response but could not be parsed. Please use 'Show Current Key' to verify format.",
-                                    Timestamp = DateTime.Now
-                                });
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to parse Access Keys from API response: {Error}", ex.Message);
-                        return Json(new ApiTestResult
-                        {
-                            Success = false,
-                            Message = "Failed to parse Access Keys response from API",
-                            ErrorDetails = $"Parse error: {ex.Message}",
-                            Timestamp = DateTime.Now
-                        });
-                    }
-                }
-
-                // Final check - if still no keys, return error
-                if (keyData == null)
+                if (string.IsNullOrEmpty(clientId))
                 {
                     return Json(new ApiTestResult
                     {
                         Success = false,
-                        Message = "No Access Keys found. Please create Access Keys first to use Search API.",
-                        ErrorDetails = "Search API requires Access Keys for authentication. Use the 'Create Access Keys' feature first.",
+                        Message = "Application ID is not configured",
+                        ErrorDetails = "Please configure ApplicationId in appconfigs.json",
                         Timestamp = DateTime.Now
                     });
                 }
 
-                if (keyData != null && !string.IsNullOrEmpty(keyData.AccessKeyId))
+                // Get Access Keys for OAuth2 authentication
+                var savedKeys = await _storageService.GetAccessKeysAsync(clientId);
+                if (savedKeys == null)
                 {
-                    // TODO: Implement proper Search API with Access Keys
-                    // For now, show that we have the keys and can proceed
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "Access Keys not found",
+                        ErrorDetails = "Please create or retrieve Access Keys first before searching. Use 'Create Access Keys' or 'Get Access Keys' functionality.",
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                var accessKeyData = _storageService.ParseAccessKeyData(savedKeys);
+                if (accessKeyData == null || string.IsNullOrEmpty(accessKeyData.AccessKeyId) || string.IsNullOrEmpty(accessKeyData.AccessKeySecret))
+                {
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "Invalid Access Keys",
+                        ErrorDetails = "Access Keys are invalid or incomplete. Please create new Access Keys.",
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                // Step 1: Get OAuth2 access token from Search API using SearchSGAuthService (with caching)
+                string searchAccessToken;
+                try
+                {
+                    searchAccessToken = await _authService.GetSearchApiTokenAsync(accessKeyData.AccessKeyId, accessKeyData.AccessKeySecret);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to get Search API access token");
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "Failed to get Search API access token",
+                        ErrorDetails = ex.Message,
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                // Step 2: Use access token to call Search API with GET request
+                var scope = string.IsNullOrWhiteSpace(searchRequest.Scope) ? "domain" : searchRequest.Scope.Trim();
+
+                // Use GET request with query params and Bearer token in Authorization header
+                var queryParts = new List<string>
+                {
+                    $"clientId={Uri.EscapeDataString(clientId)}",
+                    $"q={Uri.EscapeDataString(query)}",
+                    $"scope={Uri.EscapeDataString(scope)}",
+                    $"size={size}"
+                };
+                if (searchRequest.From > 0)
+                {
+                    queryParts.Add($"from={searchRequest.From}");
+                }
+                var fullUrl = $"{_config.BaseUrl}/search/v1/search?{string.Join("&", queryParts)}";
+                _logger.LogInformation("Search API GET request: {Url}", fullUrl);
+
+                // Configure HttpClient to automatically decompress gzip/deflate responses
+                using var handler = new System.Net.Http.HttpClientHandler
+                {
+                    AutomaticDecompression = System.Net.DecompressionMethods.All
+                };
+                using var httpClient = new HttpClient(handler);
+                var httpRequest = new HttpRequestMessage(HttpMethod.Get, fullUrl);
+                
+                // Set Bearer token in Authorization header
+                httpRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", searchAccessToken);
+
+                httpRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36");
+                // Thêm Accept (đây là thực hành tốt)
+                httpRequest.Headers.Accept.ParseAdd("application/json");
+                
+                // Log request details for debugging
+                _logger.LogInformation("Search API request - URL: {Url}, Authorization header present: {HasAuth}, Token length: {TokenLength}", 
+                    fullUrl, httpRequest.Headers.Authorization != null, searchAccessToken?.Length ?? 0);
+
+                var httpResponse = await httpClient.SendAsync(httpRequest);
+                
+                var responseContent = httpResponse.Content != null 
+                    ? await httpResponse.Content.ReadAsStringAsync() 
+                    : string.Empty;
+
+                _logger.LogInformation("Search API response: Status={Status}, ContentLength={Length}, Content={Content}",
+                    httpResponse.StatusCode, responseContent.Length, responseContent);
+
+                if (!httpResponse.IsSuccessStatusCode)
+                {
+                    _logger.LogError("Search API failed: {Status}, {Content}. Request URL: {Url}, Token length: {TokenLength}", 
+                        httpResponse.StatusCode, responseContent, fullUrl, searchAccessToken?.Length ?? 0);
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = $"Search API failed: {httpResponse.StatusCode}",
+                        ErrorDetails = responseContent,
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                // Parse and return search results
+                try
+                {
+                    // Parse JSON response
+                    using var document = System.Text.Json.JsonDocument.Parse(responseContent);
+                    var root = document.RootElement;
+
+                    // Format response for display
+                    var formattedResponse = System.Text.Json.JsonSerializer.Serialize(root, new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+
+                    // Extract summary information if available
+                    var resultCount = 0;
+                    var message = $"Search completed successfully. Query: '{query}', Size: {size}";
+
+                    if (root.TryGetProperty("results", out var resultsElement) && resultsElement.ValueKind == JsonValueKind.Array)
+                    {
+                        resultCount = resultsElement.GetArrayLength();
+                        message += $", Found: {resultCount} result(s)";
+                    }
+                    else if (root.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Array)
+                    {
+                        resultCount = dataElement.GetArrayLength();
+                        message += $", Found: {resultCount} result(s)";
+                    }
+
                     return Json(new ApiTestResult
                     {
                         Success = true,
-                        Message = $"Ready to search with Access Key: {keyData.AccessKeyId}",
-                        ErrorDetails = $"Search implementation with Access Keys is ready. AccessKeyId: {keyData.AccessKeyId}",
+                        Message = message,
+                        ErrorDetails = formattedResponse,
                         Timestamp = DateTime.Now
                     });
                 }
-
-                return Json(new ApiTestResult
+                catch (Exception ex)
                 {
-                    Success = false,
-                    Message = "No saved Access Keys found. Please use 'Show Current Key' to verify or 'Create Key' to create new ones.",
-                    ErrorDetails = "Search API requires Access Keys for authentication. Use local storage keys to avoid hitting API limits.",
-                    Timestamp = DateTime.Now
-                });
+                    _logger.LogError(ex, "Failed to parse search response");
+                    // Return raw response if parsing fails
+                    return Json(new ApiTestResult
+                    {
+                        Success = true,
+                        Message = $"Search completed. Query: '{query}', Size: {size}",
+                        ErrorDetails = responseContent,
+                        Timestamp = DateTime.Now
+                    });
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Search documents failed");
+                _logger.LogError(ex, "Search documents failed: {Error}", ex.Message);
                 return Json(new ApiTestResult
                 {
                     Success = false,
@@ -889,7 +943,7 @@ namespace SearchSGTestApp.Controllers
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error parsing adminList: {ex.Message}");
+                    _logger.LogError(ex, "Error parsing adminList");
                 }
                 var adminCount = adminList.Count;
                 
