@@ -342,38 +342,34 @@
                             <h5><i class="fas fa-search me-2"></i>Search Documents</h5>
                         </div>
                         <div class="card-body">
-                            <p>Search for documents in the SearchSG index. Leave empty to get all documents.</p>
+                            <p>Search for documents in the SearchSG index by title.</p>
                             <div class="row">
                                 <div class="col-md-8">
                                     <div class="mb-3">
-                                        <label for="searchQuery" class="form-label">Search Query</label>
-                                        <input type="text" class="form-control" id="searchQuery" placeholder="Enter search terms or leave empty for all documents">
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="mb-3">
-                                        <label for="searchSize" class="form-label">Results Count</label>
-                                        <select class="form-select" id="searchSize">
-                                            <option value="10">10 results</option>
-                                            <option value="20" selected>20 results</option>
-                                            <option value="50">50 results</option>
-                                            <option value="100">100 results</option>
-                                        </select>
+                                        <label for="searchQuery" class="form-label">Search by Title</label>
+                                        <input type="text" class="form-control" id="searchQuery" placeholder="Enter title to search">
                                     </div>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-primary btn-loading" id="searchDocsBtn">
+                            <!-- <button type="button" class="btn btn-primary btn-loading" id="searchDocsBtn">
                                 <span class="btn-text">Search Documents</span>
                                 <span class="loading">
                                     <span class="spinner-border spinner-border-sm me-2" role="status"></span>
                                     Searching...
                                 </span>
-                            </button>
-                            <button type="button" class="btn btn-secondary btn-loading ms-2" id="fetchAllDocsBtn">
+                            </button> -->
+                            <button type="button" class="btn btn-secondary btn-loading" id="fetchAllDocsBtn">
                                 <span class="btn-text"><i class="fas fa-download me-1"></i>Fetch All Documents</span>
                                 <span class="loading">
                                     <span class="spinner-border spinner-border-sm me-2" role="status"></span>
                                     Fetching...
+                                </span>
+                            </button>
+                            <button type="button" class="btn btn-warning btn-loading" id="checkDuplicatesBtn">
+                                <span class="btn-text"><i class="fas fa-search-minus me-1"></i>Check Duplicate IDs</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Checking...
                                 </span>
                             </button>
                             <div id="contentTypeFilterContainer" class="mt-3" style="display: none;">
@@ -623,15 +619,18 @@
                 performApiCall('/Home/TriggerIndexSync', null, '#triggerSyncResult', '#triggerSyncBtn');
             });
 
-            // Search Documents
-            $('#searchDocsBtn').click(function() {
-                const searchData = {
-                    query: $('#searchQuery').val().trim() || '*',
-                    size: parseInt($('#searchSize').val()),
-                    from: 0
-                };
-                performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#searchDocsBtn');
-            });
+            // Comment out the Search Documents button click handler
+            // $('#searchDocsBtn').click(function() {
+            //     const searchData = {
+            //         query: $('#searchQuery').val().trim() || '*',
+            //         size: parseInt($('#searchSize').val()),
+            //         from: 0
+            //     };
+            //     performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#searchDocsBtn');
+            // });
+
+            // Store all fetched documents globally
+            let allDocuments = [];
 
             // Fetch All Documents
             $('#fetchAllDocsBtn').click(function() {
@@ -644,9 +643,57 @@
                     if (success) {
                         // Generate content type filters after successful fetch
                         generateContentTypeFilters();
+                        // Enable real-time search
+                        enableTitleSearch();
                     }
                 });
             });
+
+            // Add real-time search functionality by title
+            function enableTitleSearch() {
+                $('#searchQuery').on('keyup', function() {
+                    const searchTerm = $(this).val().toLowerCase().trim();
+                    
+                    if (searchTerm === '') {
+                        // Show all items if search is empty
+                        $('#searchDocsResult').find('.result-item-card').parent().show();
+                        updateSearchResultsCount();
+                        return;
+                    }
+
+                    // Filter by title
+                    $('#searchDocsResult').find('.result-item-card').each(function() {
+                        const title = $(this).find('.card-title a').text().toLowerCase();
+                        const content = $(this).find('.card-text').text().toLowerCase();
+                        
+                        // Search in both title and content
+                        if (title.includes(searchTerm) || content.includes(searchTerm)) {
+                            $(this).parent().show();
+                        } else {
+                            $(this).parent().hide();
+                        }
+                    });
+
+                    updateSearchResultsCount();
+                });
+            }
+
+            // Update search results count
+            function updateSearchResultsCount() {
+                const visibleCount = $('#searchDocsResult').find('.result-item-card').parent(':visible').length;
+                const totalCount = $('#searchDocsResult').find('.result-item-card').length;
+                
+                const resultBadge = $('#searchDocsResult').find('.result-count-badge');
+                if (resultBadge.length > 0) {
+                    resultBadge.text(`${visibleCount}/${totalCount} item(s)`);
+                } else {
+                    // Add result count badge if it doesn't exist
+                    const resultHeader = $('#searchDocsResult').find('.result-header');
+                    if (resultHeader.length === 0 && totalCount > 0) {
+                        $('#searchDocsResult').prepend(`<div class="alert alert-info d-flex justify-content-between align-items-center"><span>Search Results: <strong class="result-count-badge">${visibleCount}/${totalCount} item(s)</strong></span></div>`);
+                    }
+                }
+            }
 
             // Generate Content Type Filters dynamically
             function generateContentTypeFilters() {
@@ -842,6 +889,28 @@
                 } else {
                     showResult('#removeAdminResult', false, 'Please enter a valid email address');
                 }
+            });
+
+            // Check Duplicate Document IDs
+            $('#checkDuplicatesBtn').click(function() {
+                const documentIds = [];
+                
+                // Extract all documentIDs from search results
+                $('#searchDocsResult').find('.result-item-card').each(function() {
+                    const docIdText = $(this).find('small').text();
+                    // Extract ID after hashtag icon: "# doc-xxx-xxx"
+                    const match = docIdText.match(/#(.+)/);
+                    if (match) {
+                        documentIds.push(match[1].trim());
+                    }
+                });
+
+                if (documentIds.length === 0) {
+                    showResult('#searchDocsResult', false, 'No documents found. Please fetch documents first.');
+                    return;
+                }
+
+                performApiCall('/Home/CheckDuplicateDocumentIds', documentIds, '#searchDocsResult', '#checkDuplicatesBtn');
             });
 
             function getFormData() {
