@@ -452,8 +452,15 @@ namespace SearchSGTestApp.Controllers
                     });
                 }
 
-                // Prepare query parameters
-                var query = string.IsNullOrWhiteSpace(searchRequest.Query) ? "*" : searchRequest.Query.Trim();
+                // Prepare query parameters - THAY ĐỔI: Loại bỏ điều kiện trim, cho phép query rỗng
+                var query = searchRequest.Query ?? "";  // Cho phép query là null hoặc rỗng
+                
+                // THAY ĐỔI: Decode query nếu là %2A hoặc *
+                if (query == "%2A" || query == "*")
+                {
+                    query = "";
+                }
+                
                 var size = searchRequest.Size > 0 ? searchRequest.Size : 20;
                 var clientId = _config.ApplicationId;
 
@@ -518,10 +525,13 @@ namespace SearchSGTestApp.Controllers
                 var queryParts = new List<string>
                 {
                     $"clientId={Uri.EscapeDataString(clientId)}",
-                    $"q={Uri.EscapeDataString(query)}",
                     $"scope={Uri.EscapeDataString(scope)}",
                     $"size={size}"
                 };
+
+                // THAY ĐỔI: Dùng ternary operator
+                queryParts.Add(string.IsNullOrEmpty(query) ? "q=" : $"q={Uri.EscapeDataString(query)}");
+
                 if (searchRequest.From > 0)
                 {
                     queryParts.Add($"from={searchRequest.From}");

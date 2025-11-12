@@ -369,6 +369,20 @@
                                     Searching...
                                 </span>
                             </button>
+                            <button type="button" class="btn btn-secondary btn-loading ms-2" id="fetchAllDocsBtn">
+                                <span class="btn-text"><i class="fas fa-download me-1"></i>Fetch All Documents</span>
+                                <span class="loading">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Fetching...
+                                </span>
+                            </button>
+                            <div id="contentTypeFilterContainer" class="mt-3" style="display: none;">
+                                <label for="contentTypeDropdown" class="form-label">Filter by Content Type</label>
+                                <select class="form-select" id="contentTypeDropdown">
+                                    <option value="">-- All Content Types --</option>
+                                    <!-- Options will be dynamically generated -->
+                                </select>
+                            </div>
                             <div id="searchDocsResult" class="result-box"></div>
                         </div>
                     </div>
@@ -618,6 +632,108 @@
                 };
                 performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#searchDocsBtn');
             });
+
+            // Fetch All Documents
+            $('#fetchAllDocsBtn').click(function() {
+                const searchData = {
+                    query: '',  // Empty query to get all
+                    size: 1000,  // Fetch large number
+                    from: 0
+                };
+                performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#fetchAllDocsBtn', function(success) {
+                    if (success) {
+                        // Generate content type filters after successful fetch
+                        generateContentTypeFilters();
+                    }
+                });
+            });
+
+            // Generate Content Type Filters dynamically
+            function generateContentTypeFilters() {
+                // Get all unique content types from resultItems
+                const contentTypes = new Set();
+                
+                // Parse the result HTML to extract content types
+                const resultItems = $('#searchDocsResult').find('.result-item-card');
+                
+                resultItems.each(function() {
+                    const badgeText = $(this).find('span.badge').text().trim();
+                    // Extract content type from badge (format: "icon contentType")
+                    const parts = badgeText.split(' ');
+                    if (parts.length > 0) {
+                        // Get last part which is the content type
+                        const contentType = parts.slice(1).join(' ').trim();
+                        if (contentType) {
+                            contentTypes.add(contentType);
+                        }
+                    }
+                });
+
+                // If no content types found, hide the filter
+                if (contentTypes.size === 0) {
+                    $('#contentTypeFilterContainer').hide();
+                    return;
+                }
+
+                // Show the filter container
+                $('#contentTypeFilterContainer').show();
+
+                // Generate dropdown options
+                const dropdown = $('#contentTypeDropdown');
+                
+                // Clear existing options except the first one
+                dropdown.find('option:not(:first)').remove();
+
+                // Add content type options
+                Array.from(contentTypes).sort().forEach((contentType) => {
+                    const option = $(`<option value="${contentType}">${contentType}</option>`);
+                    dropdown.append(option);
+                });
+
+                // Reset to "All" option
+                dropdown.val('');
+            }
+
+            // Apply Content Type Filter
+            function applyContentTypeFilter() {
+                const selectedType = $('#contentTypeDropdown').val();
+                
+                if (!selectedType || selectedType === '') {
+                    // Show all items
+                    $('#searchDocsResult').find('.result-item-card').parent().show();
+                } else {
+                    // Filter results based on selected content type
+                    $('#searchDocsResult').find('.result-item-card').each(function() {
+                        const badgeText = $(this).find('span.badge').text().trim();
+                        const contentType = badgeText.split(' ').slice(1).join(' ').trim();
+                        
+                        if (contentType === selectedType) {
+                            $(this).parent().show();
+                        } else {
+                            $(this).parent().hide();
+                        }
+                    });
+                }
+
+                // Update result count
+                const visibleCount = $('#searchDocsResult').find('.result-item-card').parent(':visible').length;
+                updateFilteredResultCount(visibleCount);
+            }
+
+            // Update filtered result count
+            function updateFilteredResultCount(count) {
+                const resultBadge = $('#searchDocsResult').find('.search-results-container .badge');
+                if (resultBadge.length > 0) {
+                    const totalCount = $('#searchDocsResult').find('.result-item-card').length;
+                    resultBadge.text(`${count}/${totalCount} item(s)`);
+                }
+            }
+
+            // Handle dropdown change
+            $(document).on('change', '#contentTypeDropdown', function() {
+                applyContentTypeFilter();
+            });
+
 
             // Show Current Key (Safe - reads from local storage)
             $('#showCurrentKeyBtn').click(function() {
