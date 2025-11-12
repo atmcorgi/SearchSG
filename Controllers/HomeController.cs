@@ -453,7 +453,7 @@ namespace SearchSGTestApp.Controllers
                 }
 
                 // Prepare query parameters
-                var query = string.IsNullOrWhiteSpace(searchRequest.Query) ? "*" : searchRequest.Query.Trim();
+                var query = string.IsNullOrWhiteSpace(searchRequest.Query) ? "" : searchRequest.Query.Trim();
                 var size = searchRequest.Size > 0 ? searchRequest.Size : 20;
                 var clientId = _config.ApplicationId;
 
@@ -515,13 +515,25 @@ namespace SearchSGTestApp.Controllers
                 var scope = string.IsNullOrWhiteSpace(searchRequest.Scope) ? "domain" : searchRequest.Scope.Trim();
 
                 // Use GET request with query params and Bearer token in Authorization header
+                // If query is empty, just use "q=" without value (API will return all documents)
                 var queryParts = new List<string>
                 {
-                    $"clientId={Uri.EscapeDataString(clientId)}",
-                    $"q={Uri.EscapeDataString(query)}",
-                    $"scope={Uri.EscapeDataString(scope)}",
-                    $"size={size}"
+                    $"clientId={Uri.EscapeDataString(clientId)}"
                 };
+                
+                // Add q parameter - if empty, just use "q=" (no value)
+                if (string.IsNullOrWhiteSpace(query))
+                {
+                    queryParts.Add("q=");
+                }
+                else
+                {
+                    queryParts.Add($"q={Uri.EscapeDataString(query)}");
+                }
+                
+                queryParts.Add($"scope={Uri.EscapeDataString(scope)}");
+                queryParts.Add($"size={size}");
+                
                 if (searchRequest.From > 0)
                 {
                     queryParts.Add($"from={searchRequest.From}");
@@ -580,7 +592,8 @@ namespace SearchSGTestApp.Controllers
                     // Extract summary information and build items list
                     var resultCount = 0;
                     var totalResults = 0;
-                    var message = $"Search completed successfully. Query: '{query}', Size: {size}";
+                    var queryDisplay = string.IsNullOrWhiteSpace(query) ? "(all documents)" : $"'{query}'";
+                    var message = $"Search completed successfully. Query: {queryDisplay}, Size: {size}";
                     var itemsListHtml = "";
 
                     // Get total number of results

@@ -78,7 +78,7 @@ namespace SearchSGTestApp.Models
 
     public class SearchQueryRequest
     {
-        public string Query { get; set; } = "*"; // Default to match all
+        public string Query { get; set; } = ""; // Default to match all
         public int Size { get; set; } = 20; // Number of results
         public int From { get; set; } = 0; // Offset for pagination
         public string? Scope { get; set; } // Optional scope (e.g., "domain")

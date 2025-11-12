@@ -612,7 +612,7 @@
             // Search Documents
             $('#searchDocsBtn').click(function() {
                 const searchData = {
-                    query: $('#searchQuery').val().trim() || '*',
+                    query: $('#searchQuery').val().trim() || '',  // Empty string if no input (not '*')
                     size: parseInt($('#searchSize').val()),
                     from: 0
                 };
