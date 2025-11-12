@@ -342,15 +342,7 @@
                             <h5><i class="fas fa-search me-2"></i>Search Documents</h5>
                         </div>
                         <div class="card-body">
-                            <p>Search for documents in the SearchSG index by title.</p>
-                            <div class="row">
-                                <div class="col-md-8">
-                                    <div class="mb-3">
-                                        <label for="searchQuery" class="form-label">Search by Title</label>
-                                        <input type="text" class="form-control" id="searchQuery" placeholder="Enter title to search">
-                                    </div>
-                                </div>
-                            </div>
+                            
                             <!-- <button type="button" class="btn btn-primary btn-loading" id="searchDocsBtn">
                                 <span class="btn-text">Search Documents</span>
                                 <span class="loading">
@@ -372,6 +364,15 @@
                                     Checking...
                                 </span>
                             </button>
+                            <p>Search for documents in the SearchSG index by title.</p>
+                            <div class="row" id="searchContainer" style="display: none;">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="searchQuery" class="form-label">Search by Title</label>
+                                        <input type="text" class="form-control" id="searchQuery" placeholder="Enter title to search">
+                                    </div>
+                                </div>
+                            </div>
                             <div id="contentTypeFilterContainer" class="mt-3" style="display: none;">
                                 <label for="contentTypeDropdown" class="form-label">Filter by Content Type</label>
                                 <select class="form-select" id="contentTypeDropdown">
@@ -379,6 +380,7 @@
                                     <!-- Options will be dynamically generated -->
                                 </select>
                             </div>
+        
                             <div id="searchDocsResult" class="result-box"></div>
                         </div>
                     </div>
@@ -720,8 +722,14 @@
                     return;
                 }
 
+                if (contentTypes.size === 0) {
+                    $('#searchContainer').hide();
+                    return;
+                }
+
                 // Show the filter container
                 $('#contentTypeFilterContainer').show();
+                $('#searchContainer').show();
 
                 // Generate dropdown options
                 const dropdown = $('#contentTypeDropdown');
