@@ -288,6 +288,62 @@
                 </div>
             </div>
 
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-trash-alt me-2"></i>Bulk Delete Documents</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Load all documents from the index and select which ones to delete.</p>
+                            
+                            <!-- Load Documents Button -->
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-primary btn-loading" id="loadAllDocsBtn">
+                                    <span class="btn-text"><i class="fas fa-download me-1"></i>Load All Documents</span>
+                                    <span class="loading">
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        Loading...
+                                    </span>
+                                </button>
+                                <small class="text-muted d-block mt-2">Click to fetch ALL documents from the search index (no limit). If no documents found, push some documents first in the "Custom Document Push" section above.</small>
+                            </div>
+
+                            <!-- Documents List Container -->
+                            <div id="bulkDeleteDocsContainer" style="display: none;">
+                                <!-- Header with Select All and Delete Button -->
+                                <div class="d-flex justify-content-between align-items-center mb-3 p-3 bg-light rounded">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="selectAllBulkDocs">
+                                            <label class="form-check-label fw-bold" for="selectAllBulkDocs">
+                                                Select All
+                                            </label>
+                                        </div>
+                                        <span id="bulkDocsTotal" class="badge bg-primary">0 documents</span>
+                                        <span id="bulkDocsSelected" class="badge bg-success" style="display: none;">0 selected</span>
+                                    </div>
+                                    <button type="button" class="btn btn-danger btn-sm btn-loading" id="deleteSelectedDocsBtn" style="display: none;">
+                                        <span class="btn-text"><i class="fas fa-trash me-1"></i>Delete Selected</span>
+                                        <span class="loading">
+                                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                            Deleting...
+                                        </span>
+                                    </button>
+                                </div>
+
+                                <!-- Documents List -->
+                                <div id="bulkDeleteDocsList" class="border rounded p-2" style="max-height: 500px; overflow-y: auto;">
+                                    <!-- Documents will be loaded here -->
+                                </div>
+                            </div>
+
+                            <div id="bulkDeleteResult" class="result-box mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
     <!-- End Tab 1: Push API Test -->
@@ -687,6 +743,248 @@
                 }
             });
 
+            // Load All Documents for Bulk Delete
+            $('#loadAllDocsBtn').click(function() {
+                const searchData = {
+                    query: '',  // Empty query to get all documents
+                    size: 0,    // 0 means get all documents
+                    from: 0
+                };
+                
+                // Call search API to get all documents
+                performApiCall('/Home/SearchDocuments', searchData, '#bulkDeleteResult', '#loadAllDocsBtn', function(success, response) {
+                    if (success && response) {
+                        // Override the message for bulk delete context
+                        // Extract total count from message or parse from errorDetails
+                        let totalDocs = 0;
+                        try {
+                            const data = typeof response.errorDetails === 'string' ? JSON.parse(response.errorDetails) : response.errorDetails;
+                            totalDocs = data.totalNumberOfResults || (data.resultItems ? data.resultItems.length : 0);
+                        } catch (e) {
+                            console.error('Error parsing document count:', e);
+                        }
+                        
+                        // Show custom message for bulk delete
+                        const customMessage = totalDocs > 0 
+                            ? `Successfully loaded ${totalDocs} document(s) from the index. Select the documents you want to delete below.`
+                            : 'No documents found in the index.';
+                        showResult('#bulkDeleteResult', success, customMessage, null, null, null);
+                        
+                        // errorDetails contains the raw JSON response from search API
+                        displayBulkDeleteDocuments(response.errorDetails);
+                    }
+                });
+            });
+
+            // Function to display documents in bulk delete list
+            function displayBulkDeleteDocuments(responseData) {
+                try {
+                    // Parse the response if it's a string
+                    let data = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
+                    
+                    // Extract documents from resultItems
+                    let documents = [];
+                    if (data.resultItems && Array.isArray(data.resultItems)) {
+                        documents = data.resultItems;
+                    }
+
+                    if (documents.length === 0) {
+                        showResult('#bulkDeleteResult', false, 'No documents found in the index. Try searching for documents first in the "Search Documents" section.');
+                        return;
+                    }
+
+                    // Update total count
+                    $('#bulkDocsTotal').text(documents.length + ' document' + (documents.length > 1 ? 's' : ''));
+
+                    // Build HTML for documents list with card style like search results
+                    let html = '<div class="row g-3">';
+                    documents.forEach(function(doc) {
+                        const docId = doc.documentId || 'N/A';
+                        const title = doc.title || 'No Title';
+                        const description = doc.description || '';
+                        const contentType = doc.contentType || '';
+                        const url = doc.url || '#';
+                        const lastUpdated = doc.lastUpdated ? new Date(doc.lastUpdated).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+                        const scoreConfidence = doc.scoreConfidence || '';
+                        
+                        // Get categories
+                        let categories = [];
+                        if (doc.categories && Array.isArray(doc.categories)) {
+                            categories = doc.categories.filter(c => c && c.trim() !== '');
+                        }
+                        
+                        // Get content type badge class
+                        let contentTypeBadgeClass = 'bg-secondary';
+                        switch((contentType || '').toUpperCase()) {
+                            case 'PAGES': contentTypeBadgeClass = 'bg-info'; break;
+                            case 'NEWS': contentTypeBadgeClass = 'bg-danger'; break;
+                            case 'EVENTS': contentTypeBadgeClass = 'bg-warning text-dark'; break;
+                            case 'COURSES': contentTypeBadgeClass = 'bg-success'; break;
+                            case 'FAQ': contentTypeBadgeClass = 'bg-primary'; break;
+                            case 'SCHOOLS': contentTypeBadgeClass = 'bg-secondary'; break;
+                        }
+                        
+                        // Get content type icon
+                        let contentTypeIcon = '<i class="fas fa-file"></i>';
+                        switch((contentType || '').toUpperCase()) {
+                            case 'PAGES': contentTypeIcon = '<i class="fas fa-file-alt"></i>'; break;
+                            case 'NEWS': contentTypeIcon = '<i class="fas fa-newspaper"></i>'; break;
+                            case 'EVENTS': contentTypeIcon = '<i class="fas fa-calendar-alt"></i>'; break;
+                            case 'COURSES': contentTypeIcon = '<i class="fas fa-book"></i>'; break;
+                            case 'FAQ': contentTypeIcon = '<i class="fas fa-question-circle"></i>'; break;
+                            case 'SCHOOLS': contentTypeIcon = '<i class="fas fa-school"></i>'; break;
+                        }
+                        
+                        const shortDesc = description && description.length > 150 ? description.substring(0, 150) + '...' : description;
+                        
+                        html += '<div class="col-12 bulk-doc-item">';
+                        html += '<div class="card h-100 shadow-sm border-0 result-item-card" style="transition: transform 0.2s, box-shadow 0.2s;">';
+                        html += '<div class="card-body p-3">';
+                        
+                        // Checkbox and header
+                        html += '<div class="d-flex align-items-start mb-2">';
+                        html += '<input class="form-check-input me-3 mt-1 bulk-doc-checkbox" type="checkbox" value="' + escapeHtml(docId) + '" id="bulk-doc-' + escapeHtml(docId) + '" data-doc-id="' + escapeHtml(docId) + '" style="cursor: pointer; width: 20px; height: 20px;">';
+                        html += '<div class="flex-grow-1">';
+                        html += '<div class="d-flex justify-content-between align-items-start mb-2">';
+                        html += '<h6 class="card-title mb-0 flex-grow-1">';
+                        html += '<a href="' + escapeHtml(url) + '" target="_blank" class="text-decoration-none text-primary fw-bold" style="font-size: 1.05rem;">' + escapeHtml(title) + '</a>';
+                        html += '</h6>';
+                        if (contentType) {
+                            html += '<span class="badge ' + contentTypeBadgeClass + ' ms-2">' + contentTypeIcon + ' ' + escapeHtml(contentType) + '</span>';
+                        }
+                        html += '</div>';
+                        
+                        // Description
+                        if (shortDesc) {
+                            html += '<p class="card-text text-muted mb-2" style="font-size: 0.9rem; line-height: 1.5;">' + escapeHtml(shortDesc) + '</p>';
+                        }
+                        
+                        // Categories badges
+                        if (categories.length > 0) {
+                            html += '<div class="mb-2">';
+                            categories.slice(0, 5).forEach(function(category) {
+                                html += '<span class="badge bg-secondary me-1 mb-1" style="font-size: 0.75rem;">' + escapeHtml(category) + '</span>';
+                            });
+                            if (categories.length > 5) {
+                                html += '<span class="badge bg-light text-dark me-1 mb-1" style="font-size: 0.75rem;">+' + (categories.length - 5) + ' more</span>';
+                            }
+                            html += '</div>';
+                        }
+                        
+                        // Footer with metadata
+                        html += '<div class="d-flex justify-content-between align-items-center pt-2 border-top">';
+                        html += '<div class="small text-muted">';
+                        html += '<i class="fas fa-hashtag me-1"></i><span class="font-monospace" style="font-size: 0.8rem;">' + escapeHtml(docId) + '</span>';
+                        html += '</div>';
+                        html += '<div class="small text-muted">';
+                        if (lastUpdated) {
+                            html += '<i class="far fa-clock me-1"></i>' + escapeHtml(lastUpdated);
+                        }
+                        if (scoreConfidence) {
+                            let scoreIcon = scoreConfidence === 'HIGH' ? 'fa-check-circle text-success' : scoreConfidence === 'MEDIUM' ? 'fa-exclamation-circle text-warning' : 'fa-info-circle text-info';
+                            html += ' <i class="fas ' + scoreIcon + ' ms-2" title="Score: ' + escapeHtml(scoreConfidence) + '"></i>';
+                        }
+                        html += '</div>';
+                        html += '</div>';
+                        
+                        html += '</div>'; // flex-grow-1
+                        html += '</div>'; // d-flex
+                        html += '</div>'; // card-body
+                        html += '</div>'; // card
+                        html += '</div>'; // col-12
+                    });
+                    html += '</div>'; // row
+
+                    $('#bulkDeleteDocsList').html(html);
+                    $('#bulkDeleteDocsContainer').show();
+                    updateBulkDeleteSelection();
+                } catch (e) {
+                    console.error('Error parsing documents:', e);
+                    showResult('#bulkDeleteResult', false, 'Error parsing documents: ' + e.message);
+                }
+            }
+
+            // Helper function to escape HTML
+            function escapeHtml(text) {
+                const map = {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                };
+                return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+            }
+
+            // Handle individual checkbox change
+            $(document).on('change', '.bulk-doc-checkbox', function() {
+                updateBulkDeleteSelection();
+            });
+
+            // Handle Select All checkbox
+            $('#selectAllBulkDocs').change(function() {
+                const isChecked = $(this).prop('checked');
+                $('.bulk-doc-checkbox').prop('checked', isChecked);
+                updateBulkDeleteSelection();
+            });
+
+            // Update selection UI
+            function updateBulkDeleteSelection() {
+                const total = $('.bulk-doc-checkbox').length;
+                const selected = $('.bulk-doc-checkbox:checked').length;
+
+                if (selected > 0) {
+                    $('#bulkDocsSelected').text(selected + ' selected').show();
+                    $('#deleteSelectedDocsBtn').show();
+                } else {
+                    $('#bulkDocsSelected').hide();
+                    $('#deleteSelectedDocsBtn').hide();
+                }
+
+                // Update Select All checkbox
+                if (total > 0) {
+                    $('#selectAllBulkDocs').prop('checked', selected === total);
+                    $('#selectAllBulkDocs').prop('indeterminate', selected > 0 && selected < total);
+                }
+            }
+
+            // Delete Selected Documents
+            $('#deleteSelectedDocsBtn').click(function() {
+                const selectedDocs = [];
+                $('.bulk-doc-checkbox:checked').each(function() {
+                    selectedDocs.push($(this).data('doc-id'));
+                });
+
+                if (selectedDocs.length === 0) {
+                    alert('Please select at least one document to delete');
+                    return;
+                }
+
+                // Show confirmation dialog
+                const confirmMsg = 'Are you sure you want to delete ' + selectedDocs.length + ' document' + (selectedDocs.length > 1 ? 's' : '') + '?\n\nDocument IDs:\n' + selectedDocs.slice(0, 10).join('\n') + (selectedDocs.length > 10 ? '\n... and ' + (selectedDocs.length - 10) + ' more' : '');
+                
+                if (confirm(confirmMsg)) {
+                    performApiCall('/Home/DeleteMultipleDocuments', selectedDocs, '#bulkDeleteResult', '#deleteSelectedDocsBtn', function(success) {
+                        if (success) {
+                            // Remove checked items from UI instead of reloading all
+                            $('.bulk-doc-checkbox:checked').closest('.bulk-doc-item').fadeOut(300, function() {
+                                $(this).remove();
+                                updateBulkDeleteSelection();
+                                
+                                // Update total count
+                                const remaining = $('.bulk-doc-checkbox').length;
+                                $('#bulkDocsTotal').text(remaining + ' document' + (remaining !== 1 ? 's' : ''));
+                                
+                                // Hide container if no documents left
+                                if (remaining === 0) {
+                                    $('#bulkDeleteDocsContainer').fadeOut();
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
             // Admin Management Functions
             $('#checkPermissionsBtn').click(function() {
                 performApiCall('/Home/CheckAdminPermissions', null, '#checkPermissionsResult', '#checkPermissionsBtn');
@@ -768,16 +1066,16 @@
                         if (response.jobId) {
                             $('#jobId').val(response.jobId);
                         }
-                        // Call callback if provided
+                        // Call callback if provided - pass both success and response
                         if (callback && typeof callback === 'function') {
-                            callback(response.success);
+                            callback(response.success, response);
                         }
                     },
                     error: function(xhr, status, error) {
                         showResult(resultSelector, false, 'Request failed: ' + error);
                         // Call callback with false on error
                         if (callback && typeof callback === 'function') {
-                            callback(false);
+                            callback(false, null);
                         }
                     },
                     complete: function() {
@@ -925,6 +1223,21 @@
         }
         .badge {
             font-weight: 500;
+        }
+        /* Bulk Delete Styles */
+        .bulk-doc-item {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .bulk-doc-item:hover {
+            background-color: #f8f9fa;
+        }
+        .bulk-doc-item:has(.bulk-doc-checkbox:checked) {
+            background-color: #e7f3ff;
+            border-left: 3px solid #0d6efd !important;
+        }
+        #bulkDeleteDocsList {
+            background-color: #fff;
         }
     </style>
 }

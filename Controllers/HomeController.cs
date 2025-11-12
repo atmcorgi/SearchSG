@@ -453,8 +453,12 @@ namespace SearchSGTestApp.Controllers
                 }
 
                 // Prepare query parameters
-                var query = string.IsNullOrWhiteSpace(searchRequest.Query) ? "*" : searchRequest.Query.Trim();
-                var size = searchRequest.Size > 0 ? searchRequest.Size : 20;
+                // Keep query empty if not provided or if it's the default "*"
+                var query = string.IsNullOrWhiteSpace(searchRequest.Query) || searchRequest.Query.Trim() == "*" 
+                    ? "" 
+                    : searchRequest.Query.Trim();
+                // Keep size as provided
+                var size = searchRequest.Size;
                 var clientId = _config.ApplicationId;
 
                 if (string.IsNullOrEmpty(clientId))
@@ -515,13 +519,33 @@ namespace SearchSGTestApp.Controllers
                 var scope = string.IsNullOrWhiteSpace(searchRequest.Scope) ? "domain" : searchRequest.Scope.Trim();
 
                 // Use GET request with query params and Bearer token in Authorization header
+                // Build URL with specific order: clientId, scope, size, q, from
                 var queryParts = new List<string>
                 {
                     $"clientId={Uri.EscapeDataString(clientId)}",
-                    $"q={Uri.EscapeDataString(query)}",
-                    $"scope={Uri.EscapeDataString(scope)}",
-                    $"size={size}"
+                    $"scope={Uri.EscapeDataString(scope)}"
                 };
+                
+                // Add size - if 0 or not provided, use 10000 to get all documents
+                if (searchRequest.Size > 0)
+                {
+                    queryParts.Add($"size={size}");
+                }
+                else
+                {
+                    queryParts.Add("size=10000");  // Use large number instead of empty to get all documents
+                }
+                
+                // Add query - can be empty (q=)
+                if (string.IsNullOrWhiteSpace(query))
+                {
+                    queryParts.Add("q=");
+                }
+                else
+                {
+                    queryParts.Add($"q={Uri.EscapeDataString(query)}");
+                }
+                
                 if (searchRequest.From > 0)
                 {
                     queryParts.Add($"from={searchRequest.From}");
@@ -580,7 +604,9 @@ namespace SearchSGTestApp.Controllers
                     // Extract summary information and build items list
                     var resultCount = 0;
                     var totalResults = 0;
-                    var message = $"Search completed successfully. Query: '{query}', Size: {size}";
+                    var queryDisplay = string.IsNullOrWhiteSpace(query) ? "(empty)" : query;
+                    var sizeDisplay = size > 0 ? size.ToString() : "(all)";
+                    var message = $"Search completed successfully. Query: '{queryDisplay}', Size: {sizeDisplay}";
                     var itemsListHtml = "";
 
                     // Get total number of results
@@ -741,10 +767,12 @@ namespace SearchSGTestApp.Controllers
                 {
                     _logger.LogError(ex, "Failed to parse search response");
                     // Return raw response if parsing fails
+                    var queryDisplay = string.IsNullOrWhiteSpace(query) ? "(empty)" : query;
+                    var sizeDisplay = size > 0 ? size.ToString() : "(all)";
                     return Json(new ApiTestResult
                     {
                         Success = true,
-                        Message = $"Search completed. Query: '{query}', Size: {size}",
+                        Message = $"Search completed. Query: '{queryDisplay}', Size: {sizeDisplay}",
                         ErrorDetails = responseContent,
                         Timestamp = DateTime.Now
                     });
@@ -951,6 +979,70 @@ namespace SearchSGTestApp.Controllers
                 {
                     Success = false,
                     Message = "Delete document failed",
+                    ErrorDetails = ex.Message,
+                    Timestamp = DateTime.UtcNow
+                };
+                return Json(result);
+            }
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> DeleteMultipleDocuments([FromBody] List<string> documentIds)
+        {
+            try
+            {
+                if (documentIds == null || documentIds.Count == 0)
+                {
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "No document IDs provided",
+                        Timestamp = DateTime.UtcNow
+                    });
+                }
+
+                // Remove any empty or whitespace entries
+                var cleanedIds = documentIds
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Select(id => id.Trim())
+                    .Distinct()
+                    .ToList();
+
+                if (cleanedIds.Count == 0)
+                {
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "No valid document IDs found",
+                        Timestamp = DateTime.UtcNow
+                    });
+                }
+
+                var request = new PushDocumentsRequest
+                {
+                    DocumentsToDelete = cleanedIds
+                };
+
+                var jobResponse = await _pushService.PushDocumentsAsync(request);
+
+                var result = new ApiTestResult
+                {
+                    Success = true,
+                    Message = $"Bulk deletion queued for {cleanedIds.Count} document(s)! {jobResponse.Message}",
+                    JobId = jobResponse.JobId,
+                    Timestamp = DateTime.UtcNow,
+                    ErrorDetails = $"Document IDs to delete:\n{string.Join("\n", cleanedIds)}"
+                };
+
+                return Json(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Bulk delete documents test failed. Count: {Count}", documentIds?.Count ?? 0);
+                var result = new ApiTestResult
+                {
+                    Success = false,
+                    Message = "Bulk delete documents failed",
                     ErrorDetails = ex.Message,
                     Timestamp = DateTime.UtcNow
                 };
