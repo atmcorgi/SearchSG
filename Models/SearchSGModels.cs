@@ -90,6 +90,7 @@ namespace SearchSGTestApp.Models
         public string Message { get; set; } = string.Empty;
         public string? JobId { get; set; }
         public string? ErrorDetails { get; set; }
+        public string? ItemsList { get; set; } // HTML formatted list of search items
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     }
 

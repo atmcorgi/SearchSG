@@ -539,23 +539,17 @@ namespace SearchSGTestApp.Controllers
                 
                 // Set Bearer token in Authorization header
                 httpRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", searchAccessToken);
-
                 httpRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36");
-                // Thêm Accept (đây là thực hành tốt)
                 httpRequest.Headers.Accept.ParseAdd("application/json");
                 
-                // Log request details for debugging
-                _logger.LogInformation("Search API request - URL: {Url}, Authorization header present: {HasAuth}, Token length: {TokenLength}", 
-                    fullUrl, httpRequest.Headers.Authorization != null, searchAccessToken?.Length ?? 0);
-
                 var httpResponse = await httpClient.SendAsync(httpRequest);
                 
                 var responseContent = httpResponse.Content != null 
                     ? await httpResponse.Content.ReadAsStringAsync() 
                     : string.Empty;
 
-                _logger.LogInformation("Search API response: Status={Status}, ContentLength={Length}, Content={Content}",
-                    httpResponse.StatusCode, responseContent.Length, responseContent);
+                // _logger.LogInformation("Search API response: Status={Status}, ContentLength={Length}, Content={Content}",
+                //     httpResponse.StatusCode, responseContent.Length, responseContent);
 
                 if (!httpResponse.IsSuccessStatusCode)
                 {
@@ -583,11 +577,147 @@ namespace SearchSGTestApp.Controllers
                         WriteIndented = true
                     });
 
-                    // Extract summary information if available
+                    // Extract summary information and build items list
                     var resultCount = 0;
+                    var totalResults = 0;
                     var message = $"Search completed successfully. Query: '{query}', Size: {size}";
+                    var itemsListHtml = "";
 
-                    if (root.TryGetProperty("results", out var resultsElement) && resultsElement.ValueKind == JsonValueKind.Array)
+                    // Get total number of results
+                    if (root.TryGetProperty("totalNumberOfResults", out var totalElement))
+                    {
+                        totalResults = totalElement.GetInt32();
+                        message += $", Found: {totalResults} result(s)";
+                    }
+
+                    // Extract and format resultItems
+                    if (root.TryGetProperty("resultItems", out var resultItemsElement) && resultItemsElement.ValueKind == JsonValueKind.Array)
+                    {
+                        resultCount = resultItemsElement.GetArrayLength();
+                        
+                        // Build HTML list of items with improved styling
+                        var itemsHtml = new System.Text.StringBuilder();
+                        itemsHtml.AppendLine("<div class='search-results-container mt-4'>");
+                        itemsHtml.AppendLine($"<div class='d-flex justify-content-between align-items-center mb-3'>");
+                        itemsHtml.AppendLine($"<h5 class='mb-0'><i class='fas fa-list me-2 text-primary'></i>Search Results</h5>");
+                        itemsHtml.AppendLine($"<span class='badge bg-primary rounded-pill'>{resultCount} item(s)</span>");
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("<div class='row g-3'>");
+
+                        foreach (var item in resultItemsElement.EnumerateArray())
+                        {
+                            var documentId = item.TryGetProperty("documentId", out var docId) ? docId.GetString() : "N/A";
+                            var title = item.TryGetProperty("title", out var titleEl) ? titleEl.GetString() : "No Title";
+                            var url = item.TryGetProperty("url", out var urlEl) ? urlEl.GetString() : "#";
+                            var description = item.TryGetProperty("description", out var descEl) ? descEl.GetString() : "";
+                            var contentType = item.TryGetProperty("contentType", out var typeEl) ? typeEl.GetString() : "";
+                            var lastUpdated = "";
+                            if (item.TryGetProperty("lastUpdated", out var lastUpdatedEl))
+                            {
+                                if (DateTime.TryParse(lastUpdatedEl.GetString(), out var date))
+                                {
+                                    lastUpdated = date.ToString("MMM dd, yyyy");
+                                }
+                            }
+                            var scoreConfidence = "";
+                            if (item.TryGetProperty("scoreConfidence", out var scoreEl))
+                            {
+                                scoreConfidence = scoreEl.GetString();
+                            }
+                            
+                            // Get categories as array for badges
+                            var categoriesList = new List<string>();
+                            if (item.TryGetProperty("categories", out var catsEl) && catsEl.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var cat in catsEl.EnumerateArray())
+                                {
+                                    var catValue = cat.GetString();
+                                    if (!string.IsNullOrEmpty(catValue) && catValue.Trim() != "")
+                                    {
+                                        categoriesList.Add(catValue.Trim());
+                                    }
+                                }
+                            }
+
+                            // Get content type icon and badge class
+                            var contentTypeIcon = GetContentTypeIcon(contentType);
+                            var contentTypeBadgeClass = GetContentTypeBadgeClass(contentType);
+
+                            // Escape HTML for title and description (but not icon which is already HTML)
+                            title = System.Net.WebUtility.HtmlEncode(title ?? "");
+                            description = System.Net.WebUtility.HtmlEncode(description ?? "");
+                            var shortDesc = !string.IsNullOrEmpty(description) 
+                                ? (description.Length > 150 ? description.Substring(0, 150) + "..." : description)
+                                : "";
+                            documentId = System.Net.WebUtility.HtmlEncode(documentId ?? "");
+                            url = System.Net.WebUtility.HtmlEncode(url ?? "#");
+
+                            itemsHtml.AppendLine("<div class=\"col-12\">");
+                            itemsHtml.AppendLine("<div class=\"card h-100 shadow-sm border-0 result-item-card\" style=\"transition: transform 0.2s, box-shadow 0.2s;\">");
+                            itemsHtml.AppendLine("<div class=\"card-body p-3\">");
+                            
+                            // Header with title and content type badge
+                            itemsHtml.AppendLine("<div class=\"d-flex justify-content-between align-items-start mb-2\">");
+                            itemsHtml.AppendLine($"<h6 class=\"card-title mb-0 flex-grow-1\">");
+                            itemsHtml.AppendLine($"<a href=\"{url}\" target=\"_blank\" class=\"text-decoration-none text-primary fw-bold\" style=\"font-size: 1.05rem;\">{title}</a>");
+                            itemsHtml.AppendLine("</h6>");
+                            if (!string.IsNullOrEmpty(contentType))
+                            {
+                                itemsHtml.AppendLine($"<span class=\"badge {contentTypeBadgeClass} ms-2\">{contentTypeIcon} {System.Net.WebUtility.HtmlEncode(contentType)}</span>");
+                            }
+                            itemsHtml.AppendLine("</div>");
+                            
+                            // Description
+                            if (!string.IsNullOrEmpty(shortDesc))
+                            {
+                                itemsHtml.AppendLine($"<p class=\"card-text text-muted mb-2\" style=\"font-size: 0.9rem; line-height: 1.5;\">{shortDesc}</p>");
+                            }
+                            
+                            // Categories badges
+                            if (categoriesList.Any())
+                            {
+                                itemsHtml.AppendLine("<div class=\"mb-2\">");
+                                foreach (var category in categoriesList.Take(5)) // Limit to 5 categories
+                                {
+                                    var encodedCategory = System.Net.WebUtility.HtmlEncode(category);
+                                    itemsHtml.AppendLine($"<span class=\"badge bg-secondary me-1 mb-1\" style=\"font-size: 0.75rem;\">{encodedCategory}</span>");
+                                }
+                                if (categoriesList.Count > 5)
+                                {
+                                    itemsHtml.AppendLine($"<span class=\"badge bg-light text-dark me-1 mb-1\" style=\"font-size: 0.75rem;\">+{categoriesList.Count - 5} more</span>");
+                                }
+                                itemsHtml.AppendLine("</div>");
+                            }
+                            
+                            // Footer with metadata
+                            itemsHtml.AppendLine("<div class=\"d-flex justify-content-between align-items-center pt-2 border-top\">");
+                            itemsHtml.AppendLine("<div class=\"small text-muted\">");
+                            itemsHtml.AppendLine($"<i class=\"fas fa-hashtag me-1\"></i><span class=\"font-monospace\" style=\"font-size: 0.8rem;\">{documentId}</span>");
+                            itemsHtml.AppendLine("</div>");
+                            itemsHtml.AppendLine("<div class=\"small text-muted\">");
+                            if (!string.IsNullOrEmpty(lastUpdated))
+                            {
+                                itemsHtml.AppendLine($"<i class=\"far fa-clock me-1\"></i>{System.Net.WebUtility.HtmlEncode(lastUpdated)}");
+                            }
+                            if (!string.IsNullOrEmpty(scoreConfidence))
+                            {
+                                var scoreIcon = scoreConfidence == "HIGH" ? "fa-check-circle text-success" : scoreConfidence == "MEDIUM" ? "fa-exclamation-circle text-warning" : "fa-info-circle text-info";
+                                var encodedScore = System.Net.WebUtility.HtmlEncode(scoreConfidence);
+                                itemsHtml.AppendLine($" <i class=\"fas {scoreIcon} ms-2\" title=\"Score: {encodedScore}\"></i>");
+                            }
+                            itemsHtml.AppendLine("</div>");
+                            itemsHtml.AppendLine("</div>");
+                            
+                            itemsHtml.AppendLine("</div>");
+                            itemsHtml.AppendLine("</div>");
+                            itemsHtml.AppendLine("</div>");
+                        }
+
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("</div>");
+                        itemsListHtml = itemsHtml.ToString();
+                    }
+                    else if (root.TryGetProperty("results", out var resultsElement) && resultsElement.ValueKind == JsonValueKind.Array)
                     {
                         resultCount = resultsElement.GetArrayLength();
                         message += $", Found: {resultCount} result(s)";
@@ -602,6 +732,7 @@ namespace SearchSGTestApp.Controllers
                     {
                         Success = true,
                         Message = message,
+                        ItemsList = itemsListHtml,
                         ErrorDetails = formattedResponse,
                         Timestamp = DateTime.Now
                     });
@@ -630,6 +761,34 @@ namespace SearchSGTestApp.Controllers
                     Timestamp = DateTime.Now
                 });
             }
+        }
+
+        private string GetContentTypeIcon(string contentType)
+        {
+            return contentType?.ToUpper() switch
+            {
+                "PAGES" => "<i class='fas fa-file-alt'></i>",
+                "NEWS" => "<i class='fas fa-newspaper'></i>",
+                "EVENTS" => "<i class='fas fa-calendar-alt'></i>",
+                "COURSES" => "<i class='fas fa-book'></i>",
+                "FAQ" => "<i class='fas fa-question-circle'></i>",
+                "SCHOOLS" => "<i class='fas fa-school'></i>",
+                _ => "<i class='fas fa-file'></i>"
+            };
+        }
+
+        private string GetContentTypeBadgeClass(string contentType)
+        {
+            return contentType?.ToUpper() switch
+            {
+                "PAGES" => "bg-info",
+                "NEWS" => "bg-danger",
+                "EVENTS" => "bg-warning text-dark",
+                "COURSES" => "bg-success",
+                "FAQ" => "bg-primary",
+                "SCHOOLS" => "bg-secondary",
+                _ => "bg-secondary"
+            };
         }
 
         [HttpPost]

@@ -764,7 +764,7 @@
                     contentType: 'application/json',
                     data: data ? JSON.stringify(data) : null,
                     success: function(response) {
-                        showResult(resultSelector, response.success, response.message, response.jobId, response.errorDetails);
+                        showResult(resultSelector, response.success, response.message, response.jobId, response.errorDetails, response.itemsList);
                         if (response.jobId) {
                             $('#jobId').val(response.jobId);
                         }
@@ -791,7 +791,7 @@
                 });
             }
 
-            function showResult(selector, success, message, jobId, errorDetails) {
+            function showResult(selector, success, message, jobId, errorDetails, itemsList) {
                 const $result = $(selector);
                 $result.removeClass('result-success result-error');
                 $result.addClass(success ? 'result-success' : 'result-error');
@@ -800,25 +800,131 @@
                 if (jobId) {
                     html += '<br><small><strong>Job ID:</strong> ' + jobId + '</small>';
                 }
+                
+                // Display items list first (if available)
+                if (itemsList) {
+                    html += '<br><br>' + itemsList;
+                }
+                
+                // Then display raw response
                 if (errorDetails) {
+                    // Create a unique ID for this response
+                    const responseId = 'raw-response-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                    
                     // Try to format JSON if it's valid JSON
                     let formattedDetails = errorDetails;
+                    let rawText = errorDetails;
                     try {
                         const jsonObj = JSON.parse(errorDetails);
-                        formattedDetails = '<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 300px; overflow-y: auto;">' +
+                        formattedDetails = '<pre id="' + responseId + '-pre" style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 300px; overflow-y: auto;">' +
                                          JSON.stringify(jsonObj, null, 2) + '</pre>';
+                        rawText = JSON.stringify(jsonObj, null, 2);
                     } catch (e) {
                         // If not JSON, just display as is but with better formatting
-                        formattedDetails = '<pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap;">' +
+                        formattedDetails = '<pre id="' + responseId + '-pre" style="background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap;">' +
                                          errorDetails + '</pre>';
+                        rawText = errorDetails;
                     }
-                    html += '<br><small><strong>Details:</strong></small><br>' + formattedDetails;
+                    
+                    // Escape HTML for textarea
+                    const escapedText = rawText
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                    
+                    html += '<br><br><div class="d-flex justify-content-between align-items-center mb-2">';
+                    html += '<small><strong>Raw Response:</strong></small>';
+                    html += '<button type="button" class="btn btn-sm btn-outline-secondary copy-btn" data-copy-id="' + responseId + '">';
+                    html += '<i class="fas fa-copy me-1"></i>Copy</button>';
+                    html += '</div>';
+                    html += formattedDetails;
+                    
+                    // Store raw text in hidden textarea for copying
+                    html += '<textarea id="' + responseId + '" style="position: absolute; left: -9999px; opacity: 0; width: 1px; height: 1px;">' + escapedText + '</textarea>';
                 }
                 html += '<br><small><strong>Time:</strong> ' + new Date().toLocaleString() + '</small>';
 
                 $result.html(html);
                 $result.show();
+                
+                // Attach copy button handlers
+                $result.find('.copy-btn').on('click', function() {
+                    const copyId = $(this).data('copy-id');
+                    copyToClipboard(copyId, $(this));
+                });
+            }
+            
+            // Function to copy text to clipboard
+            function copyToClipboard(elementId, $button) {
+                const textarea = document.getElementById(elementId);
+                if (!textarea) {
+                    alert('Failed to find text to copy');
+                    return;
+                }
+                
+                const text = textarea.value;
+                
+                // Try modern clipboard API first
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(function() {
+                        showCopyFeedback($button);
+                    }).catch(function(err) {
+                        // Fallback to textarea method
+                        fallbackCopyToClipboard(textarea, $button);
+                    });
+                } else {
+                    // Fallback to textarea method
+                    fallbackCopyToClipboard(textarea, $button);
+                }
+            }
+            
+            function fallbackCopyToClipboard(textarea, $button) {
+                textarea.select();
+                textarea.setSelectionRange(0, 99999); // For mobile devices
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        showCopyFeedback($button);
+                    } else {
+                        alert('Failed to copy text');
+                    }
+                } catch (err) {
+                    alert('Failed to copy: ' + err);
+                }
+            }
+            
+            function showCopyFeedback($button) {
+                const originalHtml = $button.html();
+                $button.html('<i class="fas fa-check me-1"></i>Copied!');
+                $button.removeClass('btn-outline-secondary');
+                $button.addClass('btn-outline-success');
+                setTimeout(function() {
+                    $button.html(originalHtml);
+                    $button.removeClass('btn-outline-success');
+                    $button.addClass('btn-outline-secondary');
+                }, 2000);
             }
         });
     </script>
+    <style>
+        .result-item-card {
+            border: 1px solid #e0e0e0 !important;
+        }
+        .result-item-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
+            border-color: #c0c0c0 !important;
+        }
+        .result-item-card .card-title a:hover {
+            text-decoration: underline !important;
+        }
+        .search-results-container {
+            margin-top: 1rem;
+        }
+        .badge {
+            font-weight: 500;
+        }
+    </style>
 }
