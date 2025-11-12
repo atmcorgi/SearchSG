@@ -610,7 +610,7 @@ namespace SearchSGTestApp.Controllers
                         itemsHtml.AppendLine("<div class='search-results-container mt-4'>");
                         itemsHtml.AppendLine($"<div class='d-flex justify-content-between align-items-center mb-3'>");
                         itemsHtml.AppendLine($"<h5 class='mb-0'><i class='fas fa-list me-2 text-primary'></i>Search Results</h5>");
-                        itemsHtml.AppendLine($"<span class='badge bg-primary rounded-pill'>{resultCount} item(s)</span>");
+                        itemsHtml.AppendLine($"<span class='badge bg-primary rounded-pill result-count-badge'>{resultCount} item(s)</span>");
                         itemsHtml.AppendLine("</div>");
                         itemsHtml.AppendLine("<div class='row g-3'>");
 
@@ -673,7 +673,7 @@ namespace SearchSGTestApp.Controllers
                             itemsHtml.AppendLine("</h6>");
                             if (!string.IsNullOrEmpty(contentType))
                             {
-                                itemsHtml.AppendLine($"<span class=\"badge {contentTypeBadgeClass} ms-2\">{contentTypeIcon} {System.Net.WebUtility.HtmlEncode(contentType)}</span>");
+                                itemsHtml.AppendLine($"<span class=\"badge {contentTypeBadgeClass} ms-2 content-type-badge\" data-content-type=\"{System.Net.WebUtility.HtmlEncode(contentType)}\">{contentTypeIcon} {System.Net.WebUtility.HtmlEncode(contentType)}</span>");
                             }
                             itemsHtml.AppendLine("</div>");
                             

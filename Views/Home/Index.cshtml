@@ -657,12 +657,10 @@
                 const resultItems = $('#searchDocsResult').find('.result-item-card');
                 
                 resultItems.each(function() {
-                    const badgeText = $(this).find('span.badge').text().trim();
-                    // Extract content type from badge (format: "icon contentType")
-                    const parts = badgeText.split(' ');
-                    if (parts.length > 0) {
-                        // Get last part which is the content type
-                        const contentType = parts.slice(1).join(' ').trim();
+                    // Only get the content type badge, not category badges
+                    const contentTypeBadge = $(this).find('span.content-type-badge');
+                    if (contentTypeBadge.length > 0) {
+                        const contentType = contentTypeBadge.data('content-type');
                         if (contentType) {
                             contentTypes.add(contentType);
                         }
@@ -704,8 +702,8 @@
                 } else {
                     // Filter results based on selected content type
                     $('#searchDocsResult').find('.result-item-card').each(function() {
-                        const badgeText = $(this).find('span.badge').text().trim();
-                        const contentType = badgeText.split(' ').slice(1).join(' ').trim();
+                        const contentTypeBadge = $(this).find('span.content-type-badge');
+                        const contentType = contentTypeBadge.data('content-type');
                         
                         if (contentType === selectedType) {
                             $(this).parent().show();
@@ -722,7 +720,7 @@
 
             // Update filtered result count
             function updateFilteredResultCount(count) {
-                const resultBadge = $('#searchDocsResult').find('.search-results-container .badge');
+                const resultBadge = $('#searchDocsResult').find('.result-count-badge');
                 if (resultBadge.length > 0) {
                     const totalCount = $('#searchDocsResult').find('.result-item-card').length;
                     resultBadge.text(`${count}/${totalCount} item(s)`);
