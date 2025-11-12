@@ -234,18 +234,20 @@ namespace SearchSGTestApp.Controllers
         {
             try
             {
-                var token = await _authService.GetAccessTokenAsync();
+                var (response, content) = await ExecuteWithTokenRetryAsync(async (token) =>
+                {
+                    var client = new HttpClient();
+                    var request = new HttpRequestMessage(HttpMethod.Get,
+                        $"{_config.BaseUrl}/admin/v1/bootstrap/applications/{_config.ApplicationId}");
 
-                // Test if we can access the application endpoint
-                var client = new HttpClient();
-                var request = new HttpRequestMessage(HttpMethod.Get,
-                    $"{_config.BaseUrl}/admin/v1/bootstrap/applications/{_config.ApplicationId}");
+                    request.Headers.Add("Authorization", $"Bearer {token}");
+                    request.Headers.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) postman-docs");
 
-                request.Headers.Add("Authorization", $"Bearer {token}");
-                request.Headers.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) postman-docs");
-
-                var response = await client.SendAsync(request);
-                var content = await response.Content.ReadAsStringAsync();
+                    var response = await client.SendAsync(request);
+                    var content = await response.Content.ReadAsStringAsync();
+                    
+                    return (response, content);
+                });
 
                 return Json(new ApiTestResult
                 {
@@ -275,18 +277,20 @@ namespace SearchSGTestApp.Controllers
         {
             try
             {
-                var token = await _authService.GetAccessTokenAsync();
+                var (response, content) = await ExecuteWithTokenRetryAsync(async (token) =>
+                {
+                    var client = new HttpClient();
+                    var request = new HttpRequestMessage(HttpMethod.Get,
+                        $"{_config.BaseUrl}/admin/v1/bootstrap/applications");
 
-                // List all accessible applications
-                var client = new HttpClient();
-                var request = new HttpRequestMessage(HttpMethod.Get,
-                    $"{_config.BaseUrl}/admin/v1/bootstrap/applications");
+                    request.Headers.Add("Authorization", $"Bearer {token}");
+                    request.Headers.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) postman-docs");
 
-                request.Headers.Add("Authorization", $"Bearer {token}");
-                request.Headers.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) postman-docs");
-
-                var response = await client.SendAsync(request);
-                var content = await response.Content.ReadAsStringAsync();
+                    var response = await client.SendAsync(request);
+                    var content = await response.Content.ReadAsStringAsync();
+                    
+                    return (response, content);
+                });
 
                 return Json(new ApiTestResult
                 {
@@ -1310,6 +1314,39 @@ namespace SearchSGTestApp.Controllers
                     Timestamp = DateTime.Now
                 });
             }
+        }
+
+        /// <summary>
+        /// Helper method to handle INACTIVE_SESSION errors and auto-retry with fresh token
+        /// </summary>
+        private async Task<(HttpResponseMessage response, string content)> ExecuteWithTokenRetryAsync(
+            Func<string, Task<(HttpResponseMessage, string)>> apiCall,
+            bool useAdminToken = true)
+        {
+            // Get initial token
+            var token = useAdminToken 
+                ? await _authService.GetAccessTokenAsync() 
+                : throw new NotImplementedException("Search API token retry not implemented yet");
+
+            // Execute API call
+            var (response, content) = await apiCall(token);
+
+            // Check for INACTIVE_SESSION error and retry once with fresh token
+            if (!response.IsSuccessStatusCode && content.Contains("INACTIVE_SESSION"))
+            {
+                _logger.LogWarning("Received INACTIVE_SESSION error, clearing token cache and retrying...");
+                
+                if (useAdminToken)
+                {
+                    _authService.ClearToken();
+                    token = await _authService.GetAccessTokenAsync();
+                }
+
+                // Retry the API call with fresh token
+                (response, content) = await apiCall(token);
+            }
+
+            return (response, content);
         }
     }
 
