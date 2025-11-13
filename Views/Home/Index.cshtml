@@ -839,8 +839,6 @@
                     });
                 }
 
-                console.log('Categories found:', Array.from(categories)); // Debug log
-
                 // Generate dropdown options for categories
                 const dropdown = $('#categoriesDropdown');
                 
@@ -848,101 +846,87 @@
                 dropdown.find('option:not(:first)').remove();
 
                 // Add category options sorted
-                const sortedCategories = Array.from(categories).sort();
-                if (sortedCategories.length > 0) {
-                    sortedCategories.forEach((category) => {
-                        const option = $(`<option value="${category}">${category}</option>`);
-                        dropdown.append(option);
-                    });
-                }
+                Array.from(categories).sort().forEach((category) => {
+                    const option = $(`<option value="${category}">${category}</option>`);
+                    dropdown.append(option);
+                });
 
                 // Reset to "All" option
                 dropdown.val('');
-                
-                // Log for debugging
-                console.log('Categories dropdown populated with', sortedCategories.length, 'options');
             }
 
-            // Apply Content Type & Category Filter (FIXED)
+            // Apply Content Type & Category Filter
             function applyContentTypeFilter() {
                 const selectedType = $('#contentTypeDropdown').val();
                 const selectedCategory = $('#categoriesDropdown').val();
                 
-                console.log('Filter applied - Type:', selectedType, 'Category:', selectedCategory);
-
-                let visibleCount = 0;
-                let totalCount = 0;
-                
                 $('#searchDocsResult').find('.result-item-card').each(function() {
-                    totalCount++;
-                    const cardElement = $(this);
-                    const contentTypeBadge = cardElement.find('span.content-type-badge');
+                    const contentTypeBadge = $(this).find('span.content-type-badge');
                     const contentType = contentTypeBadge.data('content-type');
                     
                     // Check content type match
                     const typeMatch = !selectedType || contentType === selectedType;
                     
-                    // Check category match by finding the document in allDocuments
+                    // Check category match - get document ID from the card
                     let categoryMatch = true;
-                    
                     if (selectedCategory && allDocuments.length > 0) {
-                        // Try to find document ID from the card
+                        // Try multiple ways to find the document ID
                         let docId = null;
                         
-                        // Try multiple ways to get the document ID
-                        // Method 1: from data attribute
-                        docId = cardElement.find('[data-doc-id]').data('doc-id');
+                        // Method 1: From data attribute
+                        docId = $(this).find('[data-doc-id]').data('doc-id');
                         
-                        // Method 2: from small text (# page-xxxx format)
+                        // Method 2: From the hashtag text
                         if (!docId) {
-                            const smallText = cardElement.find('small').text();
-                            const match = smallText.match(/#\s*([^\n]+)/);
+                            const hashtagText = $(this).find('small:contains("#")').text();
+                            const match = hashtagText.match(/#\s*(.+?)(?:\s|$)/);
                             if (match) {
                                 docId = match[1].trim();
                             }
                         }
                         
-                        // Method 3: from documentId in first line of small text
+                        // Method 3: Extract from title or other elements
                         if (!docId) {
-                            const docLink = cardElement.find('a[href*="documentId"]');
-                            if (docLink.length > 0) {
-                                docId = docLink.attr('href').split('=').pop();
-                            }
+                            const titleLink = $(this).find('.card-title a');
+                            docId = titleLink.data('doc-id') || titleLink.text().substring(0, 20);
                         }
                         
-                        console.log('Looking for docId:', docId);
+                        console.log('Looking for docId:', docId, 'Available docs:', allDocuments.length);
                         
-                        if (docId) {
-                            // Find matching document in allDocuments
-                            const matchedDoc = allDocuments.find(d => d.documentId === docId);
-                            
-                            if (matchedDoc && matchedDoc.categories) {
-                                categoryMatch = matchedDoc.categories.some(cat => cat === selectedCategory);
-                                console.log('Document categories:', matchedDoc.categories, 'Selected:', selectedCategory, 'Match:', categoryMatch);
+                        // Find matching document in allDocuments array
+                        const matchedDoc = allDocuments.find(d => d.documentId === docId);
+                        
+                        if (matchedDoc && matchedDoc.categories) {
+                            categoryMatch = matchedDoc.categories.some(cat => cat === selectedCategory);
+                            console.log('Found match:', matchedDoc.title, 'Categories:', matchedDoc.categories, 'Match:', categoryMatch);
+                        } else {
+                            // If no exact match found, try to match by title instead
+                            const cardTitle = $(this).find('.card-title a').text().trim();
+                            const matchByTitle = allDocuments.find(d => d.title === cardTitle);
+                            if (matchByTitle && matchByTitle.categories) {
+                                categoryMatch = matchByTitle.categories.some(cat => cat === selectedCategory);
                             } else {
                                 categoryMatch = false;
-                                console.log('Document not found or no categories');
                             }
-                        } else {
-                            categoryMatch = false;
-                            console.log('Could not find document ID');
                         }
                     }
                     
                     // Show/hide based on both filters
                     if (typeMatch && categoryMatch) {
-                        cardElement.parent().show();
-                        visibleCount++;
+                        $(this).parent().show();
                     } else {
-                        cardElement.parent().hide();
+                        $(this).parent().hide();
                     }
                 });
 
-                updateFilteredResultCount(visibleCount, totalCount);
+                updateFilteredResultCount();
             }
 
             // Update filtered result count
-            function updateFilteredResultCount(visibleCount, totalCount) {
+            function updateFilteredResultCount() {
+                const visibleCount = $('#searchDocsResult').find('.result-item-card').parent(':visible').length;
+                const totalCount = $('#searchDocsResult').find('.result-item-card').length;
+                
                 const resultBadge = $('#searchDocsResult').find('.result-count-badge');
                 if (resultBadge.length > 0) {
                     resultBadge.text(`${visibleCount}/${totalCount} item(s)`);
