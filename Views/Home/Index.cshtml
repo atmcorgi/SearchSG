@@ -127,8 +127,8 @@
                             <p>Check console logs for detailed debugging information.</p>
                             <small class="text-muted">
                                 <strong>Current Config:</strong><br>
-                                Base URL: https://api.services.search.gov.sg<br>
-                                App ID: b306a35b-f61b-403c-83ea-acfb499cf3c5
+                                Base URL: @(ViewBag.CurrentBaseUrl ?? "Not configured")<br>
+                                App ID: @(ViewBag.CurrentApplicationId ?? "Not configured")
                             </small>
                         </div>
                     </div>
@@ -306,6 +306,12 @@
                                         Loading...
                                     </span>
                                 </button>
+                                <div class="form-check form-switch mt-3">
+                                    <input class="form-check-input" type="checkbox" id="bulkNoCacheToggle" checked>
+                                    <label class="form-check-label" for="bulkNoCacheToggle">
+                                        Bypass cache <small class="text-muted">(sends <code>noCache=true</code>)</small>
+                                    </label>
+                                </div>
                                 <small class="text-muted d-block mt-2">Click to fetch ALL documents from the search index (no limit). If no documents found, push some documents first in the "Custom Document Push" section above.</small>
                             </div>
 
@@ -413,6 +419,12 @@
                                     Fetching...
                                 </span>
                             </button>
+                            <div class="form-check form-switch d-inline-flex align-items-center ms-3">
+                                <input class="form-check-input me-2" type="checkbox" id="searchNoCacheToggle" checked>
+                                <label class="form-check-label" for="searchNoCacheToggle">
+                                    Bypass cache <small class="text-muted">(noCache=true)</small>
+                                </label>
+                            </div>
                             <button type="button" class="btn btn-warning btn-loading" id="checkDuplicatesBtn">
                                 <span class="btn-text"><i class="fas fa-search-minus me-1"></i>Check Duplicate IDs</span>
                                 <span class="loading">
@@ -475,8 +487,8 @@
                             <div id="accessKeysResult" class="result-box"></div>
                             <small class="text-muted mt-2 d-block">
                                 <strong>Current Config:</strong><br>
-                                Base URL: https://api.services.search.gov.sg<br>
-                                App ID: b306a35b-f61b-403c-83ea-acfb499cf3c5
+                                Base URL: @(ViewBag.CurrentBaseUrl ?? "Not configured")<br>
+                                App ID: @(ViewBag.CurrentApplicationId ?? "Not configured")
                             </small>
                         </div>
                     </div>
@@ -687,22 +699,27 @@
             //     performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#searchDocsBtn');
             // });
 
-            // Store all fetched documents globally
-            let allDocuments = [];
+            // Track selected documents in Search tab for bulk delete
+            const searchSelectedDocs = new Set();
 
-            // Fetch All Documents
+            // Fetch All Documents (using Search API for search/filter functionality)
             $('#fetchAllDocsBtn').click(function() {
                 const searchData = {
                     query: '',  // Empty query to get all
                     size: 1000,  // Fetch large number
-                    from: 0
+                    from: 0,
+                    noCache: $('#searchNoCacheToggle').is(':checked')
                 };
                 performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#fetchAllDocsBtn', function(success) {
                     if (success) {
+                        resetSearchSelections();
                         // Generate content type filters after successful fetch
                         generateContentTypeFilters();
                         // Enable real-time search
                         enableTitleSearch();
+                    }
+                    else {
+                        resetSearchSelections();
                     }
                 });
             });
@@ -912,35 +929,126 @@
                 }
             });
 
-            // Load All Documents for Bulk Delete
+            // Load All Documents for Bulk Delete (using Admin API v1 - GET /admin/v1/bootstrap/applications/{AppId}/documents)
             $('#loadAllDocsBtn').click(function() {
-                const searchData = {
-                    query: '',  // Empty query to get all documents
-                    size: 0,    // 0 means get all documents
-                    from: 0
-                };
-                
-                // Call search API to get all documents
-                performApiCall('/Home/SearchDocuments', searchData, '#bulkDeleteResult', '#loadAllDocsBtn', function(success, response) {
+                performApiCall('/Home/GetAllPushedDocuments', null, '#bulkDeleteResult', '#loadAllDocsBtn', function(success, response) {
                     if (success && response) {
                         // Override the message for bulk delete context
                         // Extract total count from message or parse from errorDetails
                         let totalDocs = 0;
                         try {
                             const data = typeof response.errorDetails === 'string' ? JSON.parse(response.errorDetails) : response.errorDetails;
-                            totalDocs = data.totalNumberOfResults || (data.resultItems ? data.resultItems.length : 0);
+                            // Admin API response has results array directly
+                            totalDocs = data.results ? data.results.length : 0;
+                            if (data.metadata && data.metadata.documentCount) {
+                                totalDocs = data.metadata.documentCount;
+                            }
                         } catch (e) {
                             console.error('Error parsing document count:', e);
                         }
                         
                         // Show custom message for bulk delete
                         const customMessage = totalDocs > 0 
-                            ? `Successfully loaded ${totalDocs} document(s) from the index. Select the documents you want to delete below.`
-                            : 'No documents found in the index.';
+                            ? `Successfully loaded ${totalDocs} document(s) from pushed documents. Select the documents you want to delete below.`
+                            : 'No documents found in pushed documents.';
                         showResult('#bulkDeleteResult', success, customMessage, null, null, null);
                         
-                        // errorDetails contains the raw JSON response from search API
+                        // errorDetails contains the raw JSON response from Admin API
                         displayBulkDeleteDocuments(response.errorDetails);
+                    }
+                });
+            });
+
+            // Reset the selection UI in Search tab
+            function resetSearchSelections() {
+                searchSelectedDocs.clear();
+                const $selectAll = $('#searchSelectAll');
+                if ($selectAll.length) {
+                    $selectAll.prop('checked', false).prop('indeterminate', false);
+                }
+                updateSearchSelectionUI();
+            }
+
+            function updateSearchSelectionUI() {
+                const count = searchSelectedDocs.size;
+                const $badge = $('#searchSelectedCount');
+                const $button = $('#deleteSearchSelectedBtn');
+
+                if ($badge.length) {
+                    if (count > 0) {
+                        $badge.text(`${count} selected`).show();
+                    } else {
+                        $badge.hide();
+                    }
+                }
+
+                if ($button.length) {
+                    $button.prop('disabled', count === 0);
+                }
+            }
+
+            // Handle single checkbox selection
+            $(document).on('change', '.search-doc-checkbox', function() {
+                const docId = $(this).data('doc-id');
+                if (!docId) {
+                    return;
+                }
+                if ($(this).is(':checked')) {
+                    searchSelectedDocs.add(docId);
+                } else {
+                    searchSelectedDocs.delete(docId);
+                }
+
+                const total = $('.search-doc-checkbox').length;
+                const checked = $('.search-doc-checkbox:checked').length;
+                const $selectAll = $('#searchSelectAll');
+                if ($selectAll.length && total > 0) {
+                    $selectAll.prop('checked', checked === total);
+                    $selectAll.prop('indeterminate', checked > 0 && checked < total);
+                }
+
+                updateSearchSelectionUI();
+            });
+
+            // Handle Select All in Search tab
+            $(document).on('change', '#searchSelectAll', function() {
+                const isChecked = $(this).is(':checked');
+                $(this).prop('indeterminate', false);
+
+                $('.search-doc-checkbox').each(function() {
+                    const docId = $(this).data('doc-id');
+                    $(this).prop('checked', isChecked);
+                    if (!docId) {
+                        return;
+                    }
+                    if (isChecked) {
+                        searchSelectedDocs.add(docId);
+                    } else {
+                        searchSelectedDocs.delete(docId);
+                    }
+                });
+
+                updateSearchSelectionUI();
+            });
+
+            // Delete selected documents from Search tab
+            $(document).on('click', '#deleteSearchSelectedBtn', function() {
+                const count = searchSelectedDocs.size;
+                if (count === 0) {
+                    alert('Please select at least one document to delete.');
+                    return;
+                }
+
+                if (!confirm(`Delete ${count} selected document(s)?`)) {
+                    return;
+                }
+
+                const selectedDocs = Array.from(searchSelectedDocs);
+                performApiCall('/Home/DeleteMultipleDocuments', selectedDocs, '#searchDocsResult', '#deleteSearchSelectedBtn', function(success) {
+                    if (success) {
+                        resetSearchSelections();
+                        // Refresh search results to reflect the deletion
+                        $('#fetchAllDocsBtn').trigger('click');
                     }
                 });
             });
@@ -951,10 +1059,15 @@
                     // Parse the response if it's a string
                     let data = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
                     
-                    // Extract documents from resultItems
+                    // Extract documents from Search API response (has 'resultItems' array)
+                    // or Admin API response fallback (has 'results' array)
                     let documents = [];
                     if (data.resultItems && Array.isArray(data.resultItems)) {
+                        // Search API format: { resultItems: [...] }
                         documents = data.resultItems;
+                    } else if (data.results && Array.isArray(data.results)) {
+                        // Admin API fallback
+                        documents = data.results;
                     }
 
                     if (documents.length === 0) {

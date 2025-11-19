@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text.Json;
 using System.Net.Http.Headers;
 using System.Text;
-using RestSharp;
 
 namespace SearchSGTestApp.Controllers
 {
@@ -42,6 +41,12 @@ namespace SearchSGTestApp.Controllers
                 CustomFilter1 = "tag1,tag2",
                 SearchRankingScore = 100
             };
+
+            // Expose current configuration values to the view (helps avoid hard-coded IDs)
+            ViewBag.CurrentBaseUrl = _config.BaseUrl;
+            ViewBag.CurrentApplicationId = _config.ApplicationId;
+            ViewBag.CurrentClientId = _config.ClientId;
+
             return View(model);
         }
 
@@ -83,24 +88,44 @@ namespace SearchSGTestApp.Controllers
         {
             try
             {
-                var savedKeys = await _storageService.GetAccessKeysAsync(_config.ApplicationId);
+                // Read Application ID directly from file (not from Singleton) to get latest value
+                var currentConfig = await _storageService.GetSearchSGConfigAsync();
+                var currentApplicationId = currentConfig?.ApplicationId ?? _config.ApplicationId;
+                
+                var savedKeys = await _storageService.GetAccessKeysAsync(currentApplicationId);
                 
                 if (savedKeys == null)
                 {
                     return Json(new ApiTestResult
                     {
                         Success = false,
-                        Message = "No saved Access Keys found. Please create or get keys first.",
-                        ErrorDetails = "Access Keys are saved locally after creation/retrieval.",
+                        Message = $"No saved Access Keys found for App ID: {currentApplicationId}",
+                        ErrorDetails = $"Please create or get keys for Application ID: {currentApplicationId}\n\n" +
+                                     $"Note: Current config shows App ID: {currentApplicationId}\n" +
+                                     $"If you recently changed Application ID, you may need to:\n" +
+                                     $"1. Click 'Get Access Keys' to retrieve keys for the new Application ID\n" +
+                                     $"2. Or click 'Create Access Keys' to create new keys\n" +
+                                     $"3. Restart the application if config was changed while app is running",
                         Timestamp = DateTime.Now
                     });
+                }
+
+                var configInfo = $"Current Config App ID: {currentApplicationId}\n" +
+                               $"Singleton Config App ID: {_config.ApplicationId}";
+                
+                if (currentApplicationId != _config.ApplicationId)
+                {
+                    configInfo += $"\n\n⚠️ WARNING: Application ID mismatch detected!\n" +
+                                $"File has: {currentApplicationId}\n" +
+                                $"Singleton has: {_config.ApplicationId}\n" +
+                                $"Please restart the application to reload config.";
                 }
 
                 return Json(new ApiTestResult
                 {
                     Success = true,
-                    Message = $"Current saved Access Keys for App ID: {_config.ApplicationId}",
-                    ErrorDetails = System.Text.Json.JsonSerializer.Serialize(savedKeys, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
+                    Message = $"Current saved Access Keys for App ID: {currentApplicationId}",
+                    ErrorDetails = $"{configInfo}\n\n" + System.Text.Json.JsonSerializer.Serialize(savedKeys, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }),
                     Timestamp = DateTime.Now
                 });
             }
@@ -440,6 +465,349 @@ namespace SearchSGTestApp.Controllers
 
 
         [HttpPost]
+        public async Task<IActionResult> GetAllPushedDocuments()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_config.ApplicationId))
+                {
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "Application ID is not configured",
+                        ErrorDetails = "Please configure ApplicationId in appconfigs.json",
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                // Step 1: Get Admin API token (same as push)
+                var token = await _authService.GetAccessTokenAsync();
+
+                // Step 2: Call GET /admin/v1/bootstrap/applications/{ApplicationId}/documents
+                var client = new HttpClient();
+                var request = new HttpRequestMessage(HttpMethod.Get,
+                    $"{_config.BaseUrl}/admin/v1/bootstrap/applications/{_config.ApplicationId}/documents");
+
+                request.Headers.Add("Authorization", $"Bearer {token}");
+                request.Headers.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) postman-docs");
+
+                var response = await client.SendAsync(request);
+                var content = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("Get all pushed documents failed: {Status}, {Content}", 
+                        response.StatusCode, content);
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = $"Get all pushed documents failed: {response.StatusCode}",
+                        ErrorDetails = content,
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                // Step 3: Parse response to get S3 file URL
+                string? s3FileUrl = null;
+                string? lastModified = null;
+                long? fileSize = null;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(content);
+                    var root = doc.RootElement;
+                    
+                    if (root.TryGetProperty("data", out var dataElement))
+                    {
+                        if (dataElement.TryGetProperty("file", out var fileElement))
+                        {
+                            s3FileUrl = fileElement.GetString();
+                        }
+                        if (dataElement.TryGetProperty("lastModified", out var lastModifiedElement))
+                        {
+                            lastModified = lastModifiedElement.GetString();
+                        }
+                        if (dataElement.TryGetProperty("size", out var sizeElement))
+                        {
+                            fileSize = sizeElement.GetInt64();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to parse documents response");
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "Failed to parse documents response",
+                        ErrorDetails = $"Error: {ex.Message}\n\nResponse: {content}",
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                if (string.IsNullOrEmpty(s3FileUrl))
+                {
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "No file URL found in response",
+                        ErrorDetails = $"Response: {content}",
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                // Step 4: Download JSON file from S3 URL
+                string jsonContent;
+                try
+                {
+                    using var httpClient = new HttpClient();
+                    var jsonResponse = await httpClient.GetAsync(s3FileUrl);
+                    jsonContent = await jsonResponse.Content.ReadAsStringAsync();
+
+                    if (!jsonResponse.IsSuccessStatusCode)
+                    {
+                        _logger.LogError("Failed to download file from S3: {Status}, {Content}", 
+                            jsonResponse.StatusCode, jsonContent);
+                        return Json(new ApiTestResult
+                        {
+                            Success = false,
+                            Message = $"Failed to download file from S3: {jsonResponse.StatusCode}",
+                            ErrorDetails = jsonContent,
+                            Timestamp = DateTime.Now
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to download file from S3 URL: {Url}", s3FileUrl);
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "Failed to download file from S3",
+                        ErrorDetails = $"Error: {ex.Message}\n\nS3 URL: {s3FileUrl}",
+                        Timestamp = DateTime.Now
+                    });
+                }
+
+                // Step 5: Parse JSON and extract results array
+                try
+                {
+                    using var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonContent);
+                    var jsonRoot = jsonDoc.RootElement;
+
+                    // Extract metadata
+                    var documentCount = 0;
+                    if (jsonRoot.TryGetProperty("metadata", out var metadataElement))
+                    {
+                        if (metadataElement.TryGetProperty("documentCount", out var docCountElement))
+                        {
+                            documentCount = docCountElement.GetInt32();
+                        }
+                    }
+
+                    // Extract results array
+                    System.Text.Json.JsonElement resultsArray;
+                    if (!jsonRoot.TryGetProperty("results", out resultsArray) || resultsArray.ValueKind != JsonValueKind.Array)
+                    {
+                        return Json(new ApiTestResult
+                        {
+                            Success = false,
+                            Message = "No 'results' array found in JSON file",
+                            ErrorDetails = $"File content preview: {jsonContent.Substring(0, Math.Min(500, jsonContent.Length))}...",
+                            Timestamp = DateTime.Now
+                        });
+                    }
+
+                    var resultCount = resultsArray.GetArrayLength();
+                    var message = $"Successfully loaded {resultCount} document(s)";
+                    if (documentCount > 0)
+                    {
+                        message += $" (metadata shows {documentCount} total)";
+                    }
+                    if (!string.IsNullOrEmpty(lastModified))
+                    {
+                        message += $"\nLast modified: {lastModified}";
+                    }
+                    if (fileSize.HasValue)
+                    {
+                        message += $"\nFile size: {fileSize:N0} bytes";
+                    }
+
+                    // Build HTML list of items (same format as SearchDocuments)
+                    var itemsHtml = new System.Text.StringBuilder();
+                    itemsHtml.AppendLine("<div class='search-results-container mt-4'>");
+                    itemsHtml.AppendLine($"<div class='d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3'>");
+                    itemsHtml.AppendLine($"<h5 class='mb-0'><i class='fas fa-list me-2 text-primary'></i>Pushed Documents</h5>");
+                    itemsHtml.AppendLine($"<span class='badge bg-primary rounded-pill result-count-badge'>{resultCount} item(s)</span>");
+                    itemsHtml.AppendLine("</div>");
+                    itemsHtml.AppendLine("<div class='search-bulk-toolbar d-flex flex-wrap gap-3 align-items-center mb-3 p-3 bg-light rounded'>");
+                    itemsHtml.AppendLine("<div class='form-check m-0'>");
+                    itemsHtml.AppendLine("<input class='form-check-input' type='checkbox' id='searchSelectAll'>");
+                    itemsHtml.AppendLine("<label class='form-check-label fw-bold' for='searchSelectAll'>Select All</label>");
+                    itemsHtml.AppendLine("</div>");
+                    itemsHtml.AppendLine("<span id='searchSelectedCount' class='badge bg-success' style='display:none;'>0 selected</span>");
+                    itemsHtml.AppendLine("<button type='button' class='btn btn-danger btn-sm btn-loading' id='deleteSearchSelectedBtn' disabled>");
+                    itemsHtml.AppendLine("<span class='btn-text'><i class='fas fa-trash me-1'></i>Delete Selected</span>");
+                    itemsHtml.AppendLine("<span class='loading'>");
+                    itemsHtml.AppendLine("<span class='spinner-border spinner-border-sm me-2' role='status'></span>");
+                    itemsHtml.AppendLine("Deleting...");
+                    itemsHtml.AppendLine("</span>");
+                    itemsHtml.AppendLine("</button>");
+                    itemsHtml.AppendLine("</div>");
+                    itemsHtml.AppendLine("<div class='row g-3'>");
+
+                    foreach (var item in resultsArray.EnumerateArray())
+                    {
+                        var documentId = item.TryGetProperty("documentId", out var docId) ? docId.GetString() : "N/A";
+                        var title = item.TryGetProperty("title", out var titleEl) ? titleEl.GetString() : "No Title";
+                        var url = item.TryGetProperty("url", out var urlEl) ? urlEl.GetString() : "#";
+                        var description = item.TryGetProperty("description", out var descEl) ? descEl.GetString() : "";
+                        var contentType = item.TryGetProperty("contentType", out var typeEl) ? typeEl.GetString() : "";
+                        var lastUpdated = "";
+                        if (item.TryGetProperty("lastUpdated", out var lastUpdatedEl))
+                        {
+                            if (DateTime.TryParse(lastUpdatedEl.GetString(), out var date))
+                            {
+                                lastUpdated = date.ToString("MMM dd, yyyy");
+                            }
+                            else
+                            {
+                                lastUpdated = lastUpdatedEl.GetString() ?? "";
+                            }
+                        }
+                        
+                        // Get categories as array for badges
+                        var categoriesList = new List<string>();
+                        if (item.TryGetProperty("categories", out var catsEl) && catsEl.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var cat in catsEl.EnumerateArray())
+                            {
+                                var catValue = cat.GetString();
+                                if (!string.IsNullOrEmpty(catValue) && catValue.Trim() != "")
+                                {
+                                    categoriesList.Add(catValue.Trim());
+                                }
+                            }
+                        }
+
+                        // Get content type icon and badge class
+                        var contentTypeIcon = GetContentTypeIcon(contentType);
+                        var contentTypeBadgeClass = GetContentTypeBadgeClass(contentType);
+
+                        // Escape HTML for title and description
+                        title = System.Net.WebUtility.HtmlEncode(title ?? "");
+                        description = System.Net.WebUtility.HtmlEncode(description ?? "");
+                        var shortDesc = !string.IsNullOrEmpty(description) 
+                            ? (description.Length > 150 ? description.Substring(0, 150) + "..." : description)
+                            : "";
+                        documentId = System.Net.WebUtility.HtmlEncode(documentId ?? "");
+                        url = System.Net.WebUtility.HtmlEncode(url ?? "#");
+
+                        itemsHtml.AppendLine("<div class=\"col-12\">");
+                        itemsHtml.AppendLine("<div class=\"card h-100 shadow-sm border-0 result-item-card\" style=\"transition: transform 0.2s, box-shadow 0.2s;\">");
+                        itemsHtml.AppendLine("<div class=\"card-body p-3\">");
+
+                        itemsHtml.AppendLine("<div class=\"d-flex align-items-start mb-2\">");
+                        itemsHtml.AppendLine($"<input class=\"form-check-input me-3 mt-1 search-doc-checkbox\" type=\"checkbox\" value=\"{documentId}\" id=\"search-doc-{documentId}\" data-doc-id=\"{documentId}\">");
+                        itemsHtml.AppendLine("<div class=\"flex-grow-1\">");
+                        
+                        // Header with title and content type badge
+                        itemsHtml.AppendLine("<div class=\"d-flex justify-content-between align-items-start mb-2\">");
+                        itemsHtml.AppendLine($"<h6 class=\"card-title mb-0 flex-grow-1\">");
+                        itemsHtml.AppendLine($"<a href=\"{url}\" target=\"_blank\" class=\"text-decoration-none text-primary fw-bold\" style=\"font-size: 1.05rem;\">{title}</a>");
+                        itemsHtml.AppendLine("</h6>");
+                        if (!string.IsNullOrEmpty(contentType))
+                        {
+                            itemsHtml.AppendLine($"<span class=\"badge {contentTypeBadgeClass} ms-2 content-type-badge\" data-content-type=\"{System.Net.WebUtility.HtmlEncode(contentType)}\">{contentTypeIcon} {System.Net.WebUtility.HtmlEncode(contentType)}</span>");
+                        }
+                        itemsHtml.AppendLine("</div>");
+                        
+                        // Description
+                        if (!string.IsNullOrEmpty(shortDesc))
+                        {
+                            itemsHtml.AppendLine($"<p class=\"card-text text-muted mb-2\" style=\"font-size: 0.9rem; line-height: 1.5;\">{shortDesc}</p>");
+                        }
+                        
+                        // Categories badges
+                        if (categoriesList.Any())
+                        {
+                            itemsHtml.AppendLine("<div class=\"mb-2\">");
+                            foreach (var category in categoriesList.Take(5))
+                            {
+                                var encodedCategory = System.Net.WebUtility.HtmlEncode(category);
+                                itemsHtml.AppendLine($"<span class=\"badge bg-secondary me-1 mb-1\" style=\"font-size: 0.75rem;\">{encodedCategory}</span>");
+                            }
+                            if (categoriesList.Count > 5)
+                            {
+                                itemsHtml.AppendLine($"<span class=\"badge bg-light text-dark me-1 mb-1\" style=\"font-size: 0.75rem;\">+{categoriesList.Count - 5} more</span>");
+                            }
+                            itemsHtml.AppendLine("</div>");
+                        }
+                        
+                        // Footer with metadata
+                        itemsHtml.AppendLine("<div class=\"d-flex justify-content-between align-items-center pt-2 border-top\">");
+                        itemsHtml.AppendLine("<div class=\"small text-muted\">");
+                        itemsHtml.AppendLine($"<i class=\"fas fa-hashtag me-1\"></i><span class=\"font-monospace\" style=\"font-size: 0.8rem;\">{documentId}</span>");
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("<div class=\"small text-muted\">");
+                        if (!string.IsNullOrEmpty(lastUpdated))
+                        {
+                            itemsHtml.AppendLine($"<i class=\"far fa-clock me-1\"></i>{System.Net.WebUtility.HtmlEncode(lastUpdated)}");
+                        }
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("</div>"); // flex-grow-1
+                        itemsHtml.AppendLine("</div>"); // checkbox row
+
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("</div>");
+                    }
+
+                    itemsHtml.AppendLine("</div>");
+                    itemsHtml.AppendLine("</div>");
+                    var itemsListHtml = itemsHtml.ToString();
+
+                    // Format full JSON response for details
+                    var formattedResponse = System.Text.Json.JsonSerializer.Serialize(jsonRoot, new System.Text.Json.JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+
+                    return Json(new ApiTestResult
+                    {
+                        Success = true,
+                        Message = message,
+                        ItemsList = itemsListHtml,
+                        ErrorDetails = formattedResponse,
+                        Timestamp = DateTime.Now
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to parse JSON file content");
+                    return Json(new ApiTestResult
+                    {
+                        Success = false,
+                        Message = "Failed to parse JSON file content",
+                        ErrorDetails = $"Error: {ex.Message}\n\nFile content preview: {jsonContent.Substring(0, Math.Min(1000, jsonContent.Length))}...",
+                        Timestamp = DateTime.Now
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Get all pushed documents failed");
+                return Json(new ApiTestResult
+                {
+                    Success = false,
+                    Message = "Get all pushed documents failed",
+                    ErrorDetails = ex.Message,
+                    Timestamp = DateTime.Now
+                });
+            }
+        }
+
+        [HttpPost]
         public async Task<IActionResult> SearchDocuments([FromBody] SearchQueryRequest searchRequest)
         {
             try
@@ -464,6 +832,8 @@ namespace SearchSGTestApp.Controllers
                 // Keep size as provided
                 var size = searchRequest.Size;
                 var clientId = _config.ApplicationId;
+                // For safety, treat "size <= 0" (fetch-all scenarios) as no-cache even if the UI flag isn't sent
+                var noCacheRequested = searchRequest.NoCache || searchRequest.Size <= 0;
 
                 if (string.IsNullOrEmpty(clientId))
                 {
@@ -554,6 +924,12 @@ namespace SearchSGTestApp.Controllers
                 {
                     queryParts.Add($"from={searchRequest.From}");
                 }
+
+                if (noCacheRequested)
+                {
+                    queryParts.Add("noCache=true");
+                    queryParts.Add($"_ts={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+                }
                 var fullUrl = $"{_config.BaseUrl}/search/v1/search?{string.Join("&", queryParts)}";
                 _logger.LogInformation("Search API GET request: {Url}", fullUrl);
 
@@ -569,6 +945,18 @@ namespace SearchSGTestApp.Controllers
                 httpRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", searchAccessToken);
                 httpRequest.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36");
                 httpRequest.Headers.Accept.ParseAdd("application/json");
+
+                if (noCacheRequested)
+                {
+                    // Explicitly disable caching when requested
+                    httpRequest.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue
+                    {
+                        NoCache = true,
+                        NoStore = true,
+                        MustRevalidate = true
+                    };
+                    httpRequest.Headers.Pragma.ParseAdd("no-cache");
+                }
                 
                 var httpResponse = await httpClient.SendAsync(httpRequest);
                 
@@ -628,9 +1016,23 @@ namespace SearchSGTestApp.Controllers
                         // Build HTML list of items with improved styling
                         var itemsHtml = new System.Text.StringBuilder();
                         itemsHtml.AppendLine("<div class='search-results-container mt-4'>");
-                        itemsHtml.AppendLine($"<div class='d-flex justify-content-between align-items-center mb-3'>");
+                        itemsHtml.AppendLine($"<div class='d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3'>");
                         itemsHtml.AppendLine($"<h5 class='mb-0'><i class='fas fa-list me-2 text-primary'></i>Search Results</h5>");
                         itemsHtml.AppendLine($"<span class='badge bg-primary rounded-pill result-count-badge'>{resultCount} item(s)</span>");
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("<div class='search-bulk-toolbar d-flex flex-wrap gap-3 align-items-center mb-3 p-3 bg-light rounded'>");
+                        itemsHtml.AppendLine("<div class='form-check m-0'>");
+                        itemsHtml.AppendLine("<input class='form-check-input' type='checkbox' id='searchSelectAll'>");
+                        itemsHtml.AppendLine("<label class='form-check-label fw-bold' for='searchSelectAll'>Select All</label>");
+                        itemsHtml.AppendLine("</div>");
+                        itemsHtml.AppendLine("<span id='searchSelectedCount' class='badge bg-success' style='display:none;'>0 selected</span>");
+                        itemsHtml.AppendLine("<button type='button' class='btn btn-danger btn-sm btn-loading' id='deleteSearchSelectedBtn' disabled>");
+                        itemsHtml.AppendLine("<span class='btn-text'><i class='fas fa-trash me-1'></i>Delete Selected</span>");
+                        itemsHtml.AppendLine("<span class='loading'>");
+                        itemsHtml.AppendLine("<span class='spinner-border spinner-border-sm me-2' role='status'></span>");
+                        itemsHtml.AppendLine("Deleting...");
+                        itemsHtml.AppendLine("</span>");
+                        itemsHtml.AppendLine("</button>");
                         itemsHtml.AppendLine("</div>");
                         itemsHtml.AppendLine("<div class='row g-3'>");
 
@@ -685,6 +1087,10 @@ namespace SearchSGTestApp.Controllers
                             itemsHtml.AppendLine("<div class=\"col-12\">");
                             itemsHtml.AppendLine("<div class=\"card h-100 shadow-sm border-0 result-item-card\" style=\"transition: transform 0.2s, box-shadow 0.2s;\">");
                             itemsHtml.AppendLine("<div class=\"card-body p-3\">");
+
+                            itemsHtml.AppendLine("<div class=\"d-flex align-items-start mb-2\">");
+                            itemsHtml.AppendLine($"<input class=\"form-check-input me-3 mt-1 search-doc-checkbox\" type=\"checkbox\" value=\"{documentId}\" id=\"search-doc-{documentId}\" data-doc-id=\"{documentId}\">");
+                            itemsHtml.AppendLine("<div class=\"flex-grow-1\">");
                             
                             // Header with title and content type badge
                             itemsHtml.AppendLine("<div class=\"d-flex justify-content-between align-items-start mb-2\">");
@@ -737,7 +1143,9 @@ namespace SearchSGTestApp.Controllers
                             }
                             itemsHtml.AppendLine("</div>");
                             itemsHtml.AppendLine("</div>");
-                            
+                            itemsHtml.AppendLine("</div>"); // flex-grow-1
+                            itemsHtml.AppendLine("</div>"); // checkbox row
+
                             itemsHtml.AppendLine("</div>");
                             itemsHtml.AppendLine("</div>");
                             itemsHtml.AppendLine("</div>");

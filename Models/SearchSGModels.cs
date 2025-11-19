@@ -82,6 +82,7 @@ namespace SearchSGTestApp.Models
         public int Size { get; set; } = 0; // Number of results - 0 means return all
         public int From { get; set; } = 0; // Offset for pagination
         public string? Scope { get; set; } // Optional scope (e.g., "domain")
+        public bool NoCache { get; set; } = false; // Optional flag to bypass caches
     }
 
     public class ApiTestResult

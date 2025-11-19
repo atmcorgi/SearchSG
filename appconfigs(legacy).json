@@ -1,0 +1,19 @@
+{
+  "searchSG": {
+    "baseUrl": "https://api.services.search.gov.sg",
+    "clientId": "9f37237a-a4dd-4bd2-b3ac-658841a3a34a",
+    "clientSecret": "3b08150414854213a3fbed590afea7ef",
+    "applicationId": "b306a35b-f61b-403c-83ea-acfb499cf3c5"
+  },
+  "accessKeys": {
+    "b306a35b-f61b-403c-83ea-acfb499cf3c5": {
+      "accessKeyId": "81376ce6-653e-4eec-93f4-790b98960517",
+      "accessKeySecret": "l\u0060177/?\u003Ei{LOGjlNS51Zz%S^VfvlN:1JQB#o#,)Bo!8(y?B}{P{",
+      "description": "Access key created via test app - 2025-10-01 17:39:15",
+      "createdAt": "2025-10-01T10:39:17.130Z"
+    }
+  },
+  "lastUpdated": "2025-10-01T10:39:16.5627149Z",
+  "id": "9c7507fb-bb9a-4f3b-b845-ef37ee0322b7",
+  "id2":"a3155ebe-59a7-4879-bf81-01d26b093805"
+}
