@@ -441,12 +441,25 @@
                                     </div>
                                 </div>
                             </div>
-                            <div id="contentTypeFilterContainer" class="mt-3" style="display: none;">
-                                <label for="contentTypeDropdown" class="form-label">Filter by Content Type</label>
-                                <select class="form-select" id="contentTypeDropdown">
-                                    <option value="">-- All Content Types --</option>
-                                    <!-- Options will be dynamically generated -->
-                                </select>
+                            <div class="row mt-3" id="filterContainer" style="display: none;">
+                                <div class="col-md-6">
+                                    <div id="contentTypeFilterContainer">
+                                        <label for="contentTypeDropdown" class="form-label">Filter by Content Type</label>
+                                        <select class="form-select" id="contentTypeDropdown">
+                                            <option value="">-- All Content Types --</option>
+                                            <!-- Options will be dynamically generated -->
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div id="categoriesFilterContainer">
+                                        <label for="categoriesDropdown" class="form-label">Filter by Categories</label>
+                                        <select class="form-select" id="categoriesDropdown">
+                                            <option value="">-- All Categories --</option>
+                                            <!-- Options will be dynamically generated -->
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
         
                             <div id="searchDocsResult" class="result-box"></div>
@@ -710,7 +723,7 @@
                     from: 0,
                     noCache: $('#searchNoCacheToggle').is(':checked')
                 };
-                performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#fetchAllDocsBtn', function(success) {
+                performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#fetchAllDocsBtn', function(success, response) {
                     if (success) {
                         resetSearchSelections();
                         // Generate content type filters after successful fetch
@@ -791,20 +804,15 @@
 
                 // If no content types found, hide the filter
                 if (contentTypes.size === 0) {
-                    $('#contentTypeFilterContainer').hide();
-                    return;
-                }
-
-                if (contentTypes.size === 0) {
-                    $('#searchContainer').hide();
+                    $('#filterContainer').hide();
                     return;
                 }
 
                 // Show the filter container
-                $('#contentTypeFilterContainer').show();
+                $('#filterContainer').show();
                 $('#searchContainer').show();
 
-                // Generate dropdown options
+                // Generate dropdown options for content type
                 const dropdown = $('#contentTypeDropdown');
                 
                 // Clear existing options except the first one
@@ -818,45 +826,137 @@
 
                 // Reset to "All" option
                 dropdown.val('');
+
+                // Generate categories dropdown
+                generateCategoriesFilters();
             }
 
-            // Apply Content Type Filter
-            function applyContentTypeFilter() {
-                const selectedType = $('#contentTypeDropdown').val();
+            // Generate Categories Filters dynamically from stored documents
+            function generateCategoriesFilters() {
+                const categories = new Set();
                 
-                if (!selectedType || selectedType === '') {
-                    // Show all items
-                    $('#searchDocsResult').find('.result-item-card').parent().show();
-                } else {
-                    // Filter results based on selected content type
-                    $('#searchDocsResult').find('.result-item-card').each(function() {
-                        const contentTypeBadge = $(this).find('span.content-type-badge');
-                        const contentType = contentTypeBadge.data('content-type');
-                        
-                        if (contentType === selectedType) {
-                            $(this).parent().show();
-                        } else {
-                            $(this).parent().hide();
+                // Get categories directly from stored allDocuments array
+                if (allDocuments && Array.isArray(allDocuments)) {
+                    allDocuments.forEach(function(doc) {
+                        if (doc.categories && Array.isArray(doc.categories)) {
+                            doc.categories.forEach(function(category) {
+                                if (category && category.trim() !== '') {
+                                    categories.add(category.trim());
+                                }
+                            });
                         }
                     });
                 }
 
-                // Update result count
-                const visibleCount = $('#searchDocsResult').find('.result-item-card').parent(':visible').length;
-                updateFilteredResultCount(visibleCount);
+                // Generate dropdown options for categories
+                const dropdown = $('#categoriesDropdown');
+                
+                // Clear existing options except the first one
+                dropdown.find('option:not(:first)').remove();
+
+                // Add category options sorted
+                Array.from(categories).sort().forEach((category) => {
+                    const option = $(`<option value="${category}">${category}</option>`);
+                    dropdown.append(option);
+                });
+
+                // Reset to "All" option
+                dropdown.val('');
+            }
+
+            // Apply Content Type & Category Filter
+            function applyContentTypeFilter() {
+                const selectedType = $('#contentTypeDropdown').val();
+                const selectedCategory = $('#categoriesDropdown').val();
+                
+                $('#searchDocsResult').find('.result-item-card').each(function() {
+                    const contentTypeBadge = $(this).find('span.content-type-badge');
+                    const contentType = contentTypeBadge.data('content-type');
+                    
+                    // Check content type match
+                    const typeMatch = !selectedType || contentType === selectedType;
+                    
+                    // Check category match - get document ID from the card
+                    let categoryMatch = true;
+                    if (selectedCategory && allDocuments.length > 0) {
+                        // Try multiple ways to find the document ID
+                        let docId = null;
+                        
+                        // Method 1: From data attribute
+                        docId = $(this).find('[data-doc-id]').data('doc-id');
+                        
+                        // Method 2: From the hashtag text
+                        if (!docId) {
+                            const hashtagText = $(this).find('small:contains("#")').text();
+                            const match = hashtagText.match(/#\s*(.+?)(?:\s|$)/);
+                            if (match) {
+                                docId = match[1].trim();
+                            }
+                        }
+                        
+                        // Method 3: Extract from title or other elements
+                        if (!docId) {
+                            const titleLink = $(this).find('.card-title a');
+                            docId = titleLink.data('doc-id') || titleLink.text().substring(0, 20);
+                        }
+                        
+                        console.log('Looking for docId:', docId, 'Available docs:', allDocuments.length);
+                        
+                        // Find matching document in allDocuments array
+                        const matchedDoc = allDocuments.find(d => d.documentId === docId);
+                        
+                        if (matchedDoc && matchedDoc.categories) {
+                            categoryMatch = matchedDoc.categories.some(cat => cat === selectedCategory);
+                            console.log('Found match:', matchedDoc.title, 'Categories:', matchedDoc.categories, 'Match:', categoryMatch);
+                        } else {
+                            // If no exact match found, try to match by title instead
+                            const cardTitle = $(this).find('.card-title a').text().trim();
+                            const matchByTitle = allDocuments.find(d => d.title === cardTitle);
+                            if (matchByTitle && matchByTitle.categories) {
+                                categoryMatch = matchByTitle.categories.some(cat => cat === selectedCategory);
+                            } else {
+                                categoryMatch = false;
+                            }
+                        }
+                    }
+                    
+                    // Show/hide based on both filters
+                    if (typeMatch && categoryMatch) {
+                        $(this).parent().show();
+                    } else {
+                        $(this).parent().hide();
+                    }
+                });
+
+                updateFilteredResultCount();
             }
 
             // Update filtered result count
-            function updateFilteredResultCount(count) {
+            function updateFilteredResultCount() {
+                const visibleCount = $('#searchDocsResult').find('.result-item-card').parent(':visible').length;
+                const totalCount = $('#searchDocsResult').find('.result-item-card').length;
+                
                 const resultBadge = $('#searchDocsResult').find('.result-count-badge');
                 if (resultBadge.length > 0) {
-                    const totalCount = $('#searchDocsResult').find('.result-item-card').length;
-                    resultBadge.text(`${count}/${totalCount} item(s)`);
+                    resultBadge.text(`${visibleCount}/${totalCount} item(s)`);
+                } else if (totalCount > 0) {
+                    // Create badge if it doesn't exist
+                    const alertHtml = `<div class="alert alert-info d-flex justify-content-between align-items-center">
+                        <span>Search Results: <strong class="result-count-badge">${visibleCount}/${totalCount} item(s)</strong></span>
+                    </div>`;
+                    $('#searchDocsResult').prepend(alertHtml);
                 }
             }
 
-            // Handle dropdown change
+            // Handle content type dropdown change
             $(document).on('change', '#contentTypeDropdown', function() {
+                console.log('Content Type changed:', $(this).val());
+                applyContentTypeFilter();
+            });
+
+            // Handle categories dropdown change
+            $(document).on('change', '#categoriesDropdown', function() {
+                console.log('Category changed:', $(this).val());
                 applyContentTypeFilter();
             });
 
