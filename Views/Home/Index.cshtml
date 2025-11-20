@@ -714,6 +714,9 @@
 
             // Track selected documents in Search tab for bulk delete
             const searchSelectedDocs = new Set();
+            
+            // Store all fetched documents for filtering
+            let allDocuments = [];
 
             // Fetch All Documents (using Search API for search/filter functionality)
             $('#fetchAllDocsBtn').click(function() {
@@ -724,7 +727,15 @@
                     noCache: $('#searchNoCacheToggle').is(':checked')
                 };
                 performApiCall('/Home/SearchDocuments', searchData, '#searchDocsResult', '#fetchAllDocsBtn', function(success, response) {
-                    if (success) {
+                    if (success && response) {
+                        // Parse and store documents
+                        try {
+                            const data = typeof response.errorDetails === 'string' ? JSON.parse(response.errorDetails) : response.errorDetails;
+                            allDocuments = data.resultItems || [];
+                        } catch (e) {
+                            console.error('Error parsing documents:', e);
+                            allDocuments = [];
+                        }
                         resetSearchSelections();
                         // Generate content type filters after successful fetch
                         generateContentTypeFilters();
@@ -732,6 +743,7 @@
                         enableTitleSearch();
                     }
                     else {
+                        allDocuments = [];
                         resetSearchSelections();
                     }
                 });
